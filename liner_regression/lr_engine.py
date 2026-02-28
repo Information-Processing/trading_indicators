@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from liner_regression.hardware_lr import HardwareLinearRegression
 from software_optimised_liner_regression import OptimisedSoftwareLR
 from unoptimised_lr import UnoptimisedSoftwareLR
 
@@ -36,12 +37,13 @@ def generate_random_data(n_samples):
     return np.column_stack([features, target])
 
 class LinearRegressionEngine:
-    def __init__(self):
+    def __init__(self, ip):
         collumn_headers = list(FEATURE_RANGES.keys()) + ['1']
         initial_input_data = generate_random_data(50)
 
         self.unoptimised_sw_lr =  self.initialise_unoptimised_sw_lr(initial_input_data, collumn_headers)
         self.optimised_sw_lr =  self.initialise_optimised_sw_lr(initial_input_data, collumn_headers)
+        self.hardware_lr =  self.initialise_hardware_lr(ip, collumn_headers)
 
     def initialise_optimised_sw_lr(self, data_in, collumn_headers):
         return OptimisedSoftwareLR(data_in, collumn_headers)
@@ -49,12 +51,18 @@ class LinearRegressionEngine:
     def initialise_unoptimised_sw_lr(self, data_in, collumn_headers):
         return UnoptimisedSoftwareLR(data_in, collumn_headers)
 
+    def initialise_hardware_lr(self, ip, collumn_headers):
+        return HardwareLinearRegression(ip, collumn_headers)
+
     def test_unoptimised_sw_lr(self, samples):
         self.unoptimised_sw_lr.stream_chunk(samples)
 
     def test_optimised_sw_lr(self, samples):
         self.optimised_sw_lr.stream_chunk_optimised(samples)
     
+    def test_hardware_lr(self, samples):
+        self.optimised_sw_lr.stream_chunk(samples)
+
     def test_all_lr(self, num_samples):
         samples = generate_random_data(num_samples)
         print(f"TESTING {num_samples} samples:\n\n")
@@ -64,11 +72,15 @@ class LinearRegressionEngine:
         t2 = time.time()
         self.test_optimised_sw_lr(samples)
         t3 = time.time()
+        self.test_hardware_lr(samples)
+        t4 = time.time()
 
         print("time for unoptimised software:") 
         print(f"{t2-t1}\n")
         print("time for optimsed software:") 
         print(f"{t3-t2}\n")
+        print("time for optimsed hardware:") 
+        print(f"{t4-t3}\n")
 
     def print_all_equations(self):
         print(f"\nunoptimised software equation:")
@@ -77,8 +89,12 @@ class LinearRegressionEngine:
         print(f"\noptimised software equation:")
         self.optimised_sw_lr.print_equation()
 
+        print(f"\noptimised software equation:")
+        self.hardware_lr.print_equation()
+
 if __name__ == "__main__":
-    lr_engine = LinearRegressionEngine()
+    IP = 1
+    lr_engine = LinearRegressionEngine(IP)
     
     lr_engine.test_all_lr(1000)
     lr_engine.print_all_equations()
