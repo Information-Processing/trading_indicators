@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class CalculationEngine:
     def __init__(self):
         print("calculation engine initialised")

@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 # example input:
 # [[1,2,3,4,5],
@@ -17,7 +18,7 @@ class LinearRegression:
         self.collumn_headers = collumn_headers
 
         self.num_params = len(initial_data[0]) #actually equal to num_params + 1 as last collumn is output
-        self.num_samples = len(initial_data[0])
+        self.num_samples = len(initial_data)
 
         self.a = np.array([np.append(row[:-1], 1) for row in initial_data])
         log(f"A:\n {self.a}", 2)
@@ -78,18 +79,60 @@ class LinearRegression:
     def recalculate_params(self):
         self.ata_inv = np.linalg.inv(self.ata)
         self.params = self.ata_inv @ self.atb
-        print("recalculated params:")
+        log("recalculated params:", 2)
 
-        log(f"\n {self.params}", 1)
+        log(f"\n {self.params}", 2)
 
 
 if __name__ == "__main__":
-    collumn_headers = ['MA', '1'] #example_for_now
-    input_data = np.array([[1,1],[2,3]])
+    collumn_headers = ['VWAP', 'Vol', 'BookImb', 'Spread', 'BuySellRatio', 'LogRet', 'TradeRate', 'Volatility', 'CVD', '1']
+    input_data = np.array([
+        [100.0, 5.0, 0.55, 0.12, 1.3, 0.002,  45.0, 0.08, 10.5,  101.2],
+        [101.5, 3.2, 0.48, 0.15, 0.9, -0.001, 38.0, 0.12, -3.2,  102.0],
+        [99.8,  7.1, 0.62, 0.10, 1.7, 0.005,  52.0, 0.15, 22.1,  100.5],
+        [102.3, 2.5, 0.41, 0.18, 0.7, -0.003, 30.0, 0.06, -8.4,  103.1],
+        [98.5,  8.0, 0.70, 0.09, 2.1, 0.008,  60.0, 0.20, 31.0,   99.0],
+        [101.0, 4.8, 0.52, 0.14, 1.1, 0.001,  42.0, 0.10,  5.3,  101.8],
+        [100.2, 6.3, 0.58, 0.11, 1.5, 0.003,  48.0, 0.13, 15.7,  100.9],
+        [103.0, 2.0, 0.38, 0.20, 0.6, -0.004, 28.0, 0.05, -12.0, 103.5],
+        [99.0,  9.1, 0.72, 0.08, 2.3, 0.010,  65.0, 0.22, 40.2,   99.5],
+        [101.8, 3.8, 0.50, 0.13, 1.0, 0.000,  40.0, 0.09,  1.0,  102.2],
+    ])
 
     lr = LinearRegression(input_data, collumn_headers)
-    append_line = np.array([4,5])
+
+    append_line = np.array([102.5, 4.0, 0.53, 0.12, 1.2, 0.002, 44.0, 0.11, 7.8, 103.0])
+
+    t1 = time.time()
+
     lr.stream_line(append_line)
     lr.recalculate_params()
+
+    t2 = time.time()
+    print(f"time diff: {t2-t1}")
+
+    lr.print_equation()
+
+    append_chunk = np.array([
+        [100.5, 5.5, 0.56, 0.11, 1.4, 0.003,  46.0, 0.09, 12.0, 101.0],
+        [101.2, 3.0, 0.47, 0.16, 0.8, -0.002, 36.0, 0.11, -5.0, 102.5],
+        [99.5,  7.5, 0.64, 0.09, 1.8, 0.006,  55.0, 0.16, 25.3, 100.0],
+        [102.0, 2.8, 0.43, 0.17, 0.8, -0.003, 32.0, 0.07, -6.1, 102.8],
+        [98.8,  8.5, 0.68, 0.08, 2.0, 0.009,  62.0, 0.19, 35.5,  99.2],
+        [101.3, 4.2, 0.51, 0.13, 1.0, 0.001,  41.0, 0.10,  3.8, 101.5],
+        [100.8, 6.0, 0.59, 0.10, 1.6, 0.004,  50.0, 0.14, 18.0, 101.2],
+        [103.2, 1.8, 0.36, 0.21, 0.5, -0.005, 26.0, 0.04, -15.0, 103.8],
+        [99.2,  8.8, 0.71, 0.07, 2.2, 0.011,  63.0, 0.21, 38.0,  99.8],
+        [102.0, 3.5, 0.49, 0.14, 1.1, 0.001,  39.0, 0.08,  2.5, 102.4],
+    ])
+
+    t3 = time.time()
+
+    lr.stream_chunk(append_chunk)
+
+    t4 = time.time()
+    print(f"time diff: {t4-t3}")
+    lr.print_equation()
+
 
 
