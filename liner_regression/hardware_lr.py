@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-class HardwareLinearRegression:
+class HardwareLR:
      
     # num of input parameters
     D = 13
