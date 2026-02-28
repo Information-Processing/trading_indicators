@@ -4,6 +4,12 @@ import numpy as np
 # [[1,2,3,4,5],
 #  [1,2,3,4,5]]
 
+LOG_LVL = 1
+
+def log(message, level):
+    if (level <= LOG_LVL):
+        print(message)
+
 
 class LinearRegression:
     def __init__(self, initial_data, collumn_headers): 
@@ -14,30 +20,30 @@ class LinearRegression:
         self.num_samples = len(initial_data[0])
 
         self.a = np.array([np.append(row[:-1], 1) for row in initial_data])
-        print(f"A:\n {self.a}")
+        log(f"A:\n {self.a}", 2)
 
         self.at = self.a.transpose()
-        print(f"AT:\n {self.at}")
+        log(f"AT:\n {self.at}", 2)
 
         self.b = initial_data[:, -1].reshape(self.num_samples,1)
-        print(f"B:\n {self.b}")
+        log(f"B:\n {self.b}", 2)
 
         self.ata = self.at @ self.a
-        print(f"ata:\n {self.ata}")
+        log(f"ata:\n {self.ata}", 2)
 
         self.ata_inv = np.linalg.inv(self.ata)
-        print(f"ata inverse:\n {self.ata}")
+        log(f"ata inverse:\n {self.ata}", 2)
 
         self.atb = self.at @ self.b
-        print(f"atb:\n {self.atb}")
+        log(f"atb:\n {self.atb}", 2)
 
         self.params = self.ata_inv @ self.atb
-        print(f"params:\n {self.params}")
+        log(f"initial params:\n {self.params}", 1)
         self.print_equation()
 
     def print_equation(self):
         params = [param.item() for param in self.params]
-        print(f"{params[0]:.2f} * {self.collumn_headers[0]}", end="") 
+        print(f"{params[0]:.2f} * {self.collumn_headers[0]}", end="")
         for param_idx in range(1, self.num_params):
             print(f" + {params[param_idx]:.2f} * {self.collumn_headers[param_idx]}", end="") 
 
@@ -45,26 +51,31 @@ class LinearRegression:
 
     def stream_line(self, line):
         if len(line) != self.num_params:
-            print("ERROR: line and param size diff")
+            log("ERROR: line and param size diff", 0)
             return
         
         line_output = line[-1]
         q_vec = np.append(line[:-1], 1).reshape(1, self.num_params)
         qt_vec = q_vec.reshape(self.num_params, 1)
 
-        print(f"q:\n {q_vec}")
-        print(f"qt:\n {qt_vec}")
+        log(f"q:\n {q_vec}", 2)
+        log(f"qt:\n {qt_vec}", 2)
 
         ata_diff = qt_vec @ q_vec
         atb_diff = line_output * qt_vec
 
-        print(f"ata diff:\n {ata_diff}")
-        print(f"atb diff:\n {atb_diff}")
+        log(f"ata diff:\n {ata_diff}", 2)
+        log(f"atb diff:\n {atb_diff}", 2)
+
+        self.ata += ata_diff
+        self.atb += atb_diff
 
     def recalculate_params(self):
         self.ata_inv = np.linalg.inv(self.ata)
         self.params = self.ata_inv @ self.atb
+        print("recalculated params:")
 
+        log(f"\n {self.params}", 1)
 
 
 
@@ -77,4 +88,5 @@ if __name__ == "__main__":
     lr = LinearRegression(input_data, collumn_headers)
     append_line = np.array([4,5])
     lr.stream_line(append_line)
+    lr.recalculate_params()
 
