@@ -1,5 +1,5 @@
 import numpy as np
-import time
+
 
 class UnoptimisedSoftwareLR:
     def __init__(self, initial_data, collumn_headers):
