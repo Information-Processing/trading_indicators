@@ -36,7 +36,7 @@ class LinearRegression:
         self.print_equation()
 
     def print_equation(self):
-        params = [float(param) for param in self.params]
+        params = [param.item() for param in self.params]
         print(f"{params[0]:.2f} * {self.collumn_headers[0]}", end="") 
         for param_idx in range(1, self.num_params):
             print(f" + {params[param_idx]:.2f} * {self.collumn_headers[param_idx]}", end="") 
@@ -44,9 +44,30 @@ class LinearRegression:
         print("\n")
 
     def stream_line(self, line):
-        if len(line) != self.num_params
-
+        if len(line) != self.num_params:
+            print("ERROR: line and param size diff")
+            return
         
+        line_output = line[-1]
+        q_vec = np.append(line[:-1], 1).reshape(1, self.num_params)
+        qt_vec = q_vec.reshape(self.num_params, 1)
+
+        print(f"q:\n {q_vec}")
+        print(f"qt:\n {qt_vec}")
+
+        ata_diff = qt_vec @ q_vec
+        atb_diff = line_output * qt_vec
+
+        print(f"ata diff:\n {ata_diff}")
+        print(f"atb diff:\n {atb_diff}")
+
+    def recalculate_params(self):
+        self.ata_inv = np.linalg.inv(self.ata)
+        self.params = self.ata_inv @ self.atb
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -54,4 +75,6 @@ if __name__ == "__main__":
     input_data = np.array([[1,1],[2,3]])
 
     lr = LinearRegression(input_data, collumn_headers)
+    append_line = np.array([4,5])
+    lr.stream_line(append_line)
 
