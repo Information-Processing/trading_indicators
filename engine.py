@@ -31,6 +31,12 @@ class Engine:
             print(f"VWMA [10 sec: {vwma_10}], [30 sec: {vwma_30}], [60 sec: {vwma_60}]")
 
             time.sleep(1)
+
+            out_dict = {
+                        "vwma_10" : vwma_10,
+                        "vwma_30" : vwma_30,
+                        "vwma_60" : vwma_60
+                        }
             
 
         
