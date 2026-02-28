@@ -1,6 +1,6 @@
 import numpy as np
 import time
-from liner_regression.hardware_lr import HardwareLinearRegression
+from hardware_lr import HardwareLR 
 from software_optimised_liner_regression import OptimisedSoftwareLR
 from unoptimised_lr import UnoptimisedSoftwareLR
 
