@@ -33,19 +33,15 @@ class Engine:
             time.sleep(1)
 
             out_dict = {
-                        "vwma_10" : vwma_10,
-                        "vwma_30" : vwma_30,
-                        "vwma_60" : vwma_60
-                        }
-            
-
+                    "vwma_10" : vwma_10,
+                    "vwma_30" : vwma_30,
+                    "vwma_60" : vwma_60
+                    }
         
-        return {
-                "vwma_10" : vwma_10
-                }
 
 if __name__ == '__main__':
     eng = Engine()
     eng.get_data()
+    eng = Engine()
 
 
