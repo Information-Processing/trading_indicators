@@ -21,7 +21,6 @@ FEATURE_RANGES = {
     "BidDepth": (50.0, 500.0),
     "AskDepth": (50.0, 500.0),
     "PriceRange": (0.01, 2.0),
-    "AvgTradeSize": (0.001, 0.5),
 }
 
 def generate_random_data(n_samples):
@@ -40,10 +39,11 @@ class LinearRegressionEngine:
     def __init__(self, ip):
         collumn_headers = list(FEATURE_RANGES.keys()) + ['1']
         initial_input_data = generate_random_data(50)
+        self.ip = ip
 
         self.unoptimised_sw_lr =  self.initialise_unoptimised_sw_lr(initial_input_data, collumn_headers)
         self.optimised_sw_lr =  self.initialise_optimised_sw_lr(initial_input_data, collumn_headers)
-        self.hardware_lr =  self.initialise_hardware_lr(ip, collumn_headers)
+        #self.hardware_lr =  self.initialise_hardware_lr(ip, collumn_headers)
 
     def initialise_optimised_sw_lr(self, data_in, collumn_headers):
         return OptimisedSoftwareLR(data_in, collumn_headers)
@@ -61,7 +61,8 @@ class LinearRegressionEngine:
         self.optimised_sw_lr.stream_chunk_optimised(samples)
     
     def test_hardware_lr(self, samples):
-        self.optimised_sw_lr.stream_chunk(samples)
+        pass
+        #self.hardware_lr.stream_chunk(self.ip, samples)
 
     def test_all_lr(self, num_samples):
         samples = generate_random_data(num_samples)
@@ -72,7 +73,7 @@ class LinearRegressionEngine:
         t2 = time.time()
         self.test_optimised_sw_lr(samples)
         t3 = time.time()
-        self.test_hardware_lr(samples)
+        #self.test_hardware_lr(samples)
         t4 = time.time()
 
         print("time for unoptimised software:") 
@@ -90,13 +91,13 @@ class LinearRegressionEngine:
         self.optimised_sw_lr.print_equation()
 
         print(f"\noptimised software equation:")
-        self.hardware_lr.print_equation()
+        #self.hardware_lr.print_equation()
 
 if __name__ == "__main__":
     IP = 1
     lr_engine = LinearRegressionEngine(IP)
     
-    lr_engine.test_all_lr(1000)
+    lr_engine.test_all_lr(7000)
     lr_engine.print_all_equations()
 
 
