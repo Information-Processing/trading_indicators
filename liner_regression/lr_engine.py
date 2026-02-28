@@ -52,7 +52,7 @@ class LinearRegressionEngine:
         return UnoptimisedSoftwareLR(data_in, collumn_headers)
 
     def initialise_hardware_lr(self, ip, collumn_headers):
-        return HardwareLinearRegression(ip, collumn_headers)
+        return HardwareLR(ip, collumn_headers)
 
     def test_unoptimised_sw_lr(self, samples):
         self.unoptimised_sw_lr.stream_chunk(samples)
