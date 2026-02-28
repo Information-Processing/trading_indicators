@@ -1,7 +1,7 @@
 import numpy as np
 import time
 from liner_regression.software_optimised_liner_regression import OptimisedSoftwareLR
-from liner_regression.unoptimised_lr import OptimisedSoftwareLR, UnoptimisedSoftwareLR
+from liner_regression.unoptimised_lr import UnoptimisedSoftwareLR
 
 # example input:
 # [[1,2,3,4,5],
@@ -40,16 +40,40 @@ class LinearRegressionEngine:
         collumn_headers = list(FEATURE_RANGES.keys()) + ['1']
         initial_input_data = generate_random_data(50)
 
-        self.optimised_sw_lr =  self.initialise_optimised_sw_lr(initial_input_data, collumn_headers)
         self.unoptimised_sw_lr =  self.initialise_unoptimised_sw_lr(initial_input_data, collumn_headers)
+        self.optimised_sw_lr =  self.initialise_optimised_sw_lr(initial_input_data, collumn_headers)
 
     def initialise_optimised_sw_lr(self, data_in, collumn_headers):
         return OptimisedSoftwareLR(data_in, collumn_headers)
 
     def initialise_unoptimised_sw_lr(self, data_in, collumn_headers):
         return UnoptimisedSoftwareLR(data_in, collumn_headers)
-    
 
+    def test_unoptimised_sw_lr(self, samples):
+        self.unoptimised_sw_lr.stream_chunk(samples)
+
+    def test_optimised_sw_lr(self, samples):
+        self.optimised_sw_lr.stream_chunk_optimised(samples)
+    
+    def test_all_lr(self, num_samples):
+        samples = generate_random_data(num_samples)
+        print(f"TESTING {num_samples} samples:\n\n")
+
+        t1 = time.time()
+        self.test_unoptimised_sw_lr(samples)
+        t2 = time.time()
+        self.test_optimised_sw_lr(samples)
+        t3 = time.time()
+
+        print(f"time for unoptimsed software = {t2-t1}\n")
+        print(f"time for optimsed software = {t3-t2}\n")
+
+    def print_all_equations(self):
+        print(f"unoptimised software equation:")
+        self.unoptimised_sw_lr.print_equation()
+
+        print(f"\noptimised software equation:")
+        self.optimised_sw_lr.print_equation()
 
 
 
