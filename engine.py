@@ -28,9 +28,9 @@ class Engine:
             vwma_30 = self.ce.vwma_calculate(trades_30, now, 30.0)
             vwma_60 = self.ce.vwma_calculate(trades_60, now, 60.0) 
 
-            time.sleep(1)
-
             print(f"VWMA [10 sec: {vwma_10}], [30 sec: {vwma_30}], [60 sec: {vwma_60}]")
+
+            time.sleep(1)
             
 
         
