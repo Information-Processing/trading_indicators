@@ -1,5 +1,4 @@
 from collections import deque
-from typing_extensions import dataclass_transform
 import websocket
 import threading
 import json
@@ -57,7 +56,8 @@ class BinanceWSClient:
         data = message.get("data", {})
 
         if "trade" in stream_name:
-            self._process_trades(data)
+            pass
+            #self._process_trades(data)
         if "depth" in stream_name:
             self._process_order_book(data)
     
@@ -78,14 +78,20 @@ class BinanceWSClient:
     def _process_order_book(self, data):
         asks  = [(float(price), float(qty)) for price, qty in data.get("asks", [])]
         bids = [(float(price), float(qty)) for price, qty in data.get("bids", [])]
+
         self.order_book = {
             "asks": asks,
             "bids": bids
         }
         self.depth_count += 1
+        difference = asks[0][1] - bids[0][1]
+        print(f"asks: {asks[0]}, bids: {bids[0]}, qty diff: {difference}")
+      
 
-        # print(f"asks: {asks}")
-        # print(f"bids: {bids}")
+
+    def volume_of_best(self, data):
+        best_ask = [(float(), float(qyt))]
+
 
 
     def get_trades_since(self, cutoff):
