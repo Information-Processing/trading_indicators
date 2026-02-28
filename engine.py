@@ -31,13 +31,15 @@ class Engine:
             time.sleep(1)
 
             print(f"VWMA [10 sec: {vwma_10}], [30 sec: {vwma_30}], [60 sec: {vwma_60}]")
-
+            
 
         
-        # return {
-        #         "vwma" : self.calc_engine.compute_vwma()
-        #         }
+        return {
+                "vwma_10" : vwma_10
+                }
 
 if __name__ == '__main__':
     eng = Engine()
     eng.get_data()
+
+
