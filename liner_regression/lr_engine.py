@@ -1,7 +1,7 @@
 import numpy as np
 import time
-from liner_regression.software_optimised_liner_regression import OptimisedSoftwareLR
-from liner_regression.unoptimised_lr import UnoptimisedSoftwareLR
+from software_optimised_liner_regression import OptimisedSoftwareLR
+from unoptimised_lr import UnoptimisedSoftwareLR
 
 # example input:
 # [[1,2,3,4,5],
@@ -65,18 +65,23 @@ class LinearRegressionEngine:
         self.test_optimised_sw_lr(samples)
         t3 = time.time()
 
-        print(f"time for unoptimsed software = {t2-t1}\n")
-        print(f"time for optimsed software = {t3-t2}\n")
+        print("time for unoptimised software:") 
+        print(f"{t2-t1}\n")
+        print("time for optimsed software:") 
+        print(f"{t3-t2}\n")
 
     def print_all_equations(self):
-        print(f"unoptimised software equation:")
+        print(f"\nunoptimised software equation:")
         self.unoptimised_sw_lr.print_equation()
 
         print(f"\noptimised software equation:")
         self.optimised_sw_lr.print_equation()
 
-
-
+if __name__ == "__main__":
+    lr_engine = LinearRegressionEngine()
+    
+    lr_engine.test_all_lr(1000)
+    lr_engine.print_all_equations()
 
 
 

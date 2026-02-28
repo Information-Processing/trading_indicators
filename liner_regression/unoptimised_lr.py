@@ -11,7 +11,6 @@ class UnoptimisedSoftwareLR:
         self.b = initial_data[:, -1].reshape(-1, 1)
 
         self.params = self.solve()
-        self.print_equation()
 
     def solve(self):
         #solve function for doing (ATA)^-1 * (ATB)
@@ -37,24 +36,3 @@ class UnoptimisedSoftwareLR:
 
         self.params = self.solve()
 
-"""
-if __name__ == "__main__":
-    collumn_headers = list(FEATURE_RANGES.keys()) + ['1']
-
-    input_data = generate_random_data(50)
-    lr = UnopLinearRegression(input_data, collumn_headers)
-
-    append_chunk = generate_random_data(1)
-    t1 = time.time()
-    lr.stream_chunk(append_chunk)
-    t2 = time.time()
-    print(f"stream_chunk (1 row) time: {t2-t1}")
-    lr.print_equation()
-
-    append_chunk = generate_random_data(1000)
-    t3 = time.time()
-    lr.stream_chunk(append_chunk)
-    t4 = time.time()
-    print(f"stream_chunk (1000 rows) time: {t4-t3}")
-    lr.print_equation()
-"""
