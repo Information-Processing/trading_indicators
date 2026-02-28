@@ -70,15 +70,17 @@ class LinearRegression:
         self.ata += ata_diff
         self.atb += atb_diff
 
+    def stream_chunk(self, lines):
+        for line in lines:
+            self.stream_line(np.array(line))
+        self.recalculate_params()
+
     def recalculate_params(self):
         self.ata_inv = np.linalg.inv(self.ata)
         self.params = self.ata_inv @ self.atb
         print("recalculated params:")
 
         log(f"\n {self.params}", 1)
-
-
-
 
 
 if __name__ == "__main__":
@@ -89,4 +91,5 @@ if __name__ == "__main__":
     append_line = np.array([4,5])
     lr.stream_line(append_line)
     lr.recalculate_params()
+
 
