@@ -26,9 +26,12 @@ class HardwareLinearRegression:
     ADDR_ATB_BASE    = 0x040
     ADDR_ATA_BASE    = 0x400
 
-    def __init__(self, ip):
+    def __init__(self, ip, collumn_headers):
         """ init hardware linear regression class and compute bit packing layout"""
         self.ip = ip
+
+        self.collumn_headers = collumn_headers
+        self.weights = np.array([])
         
         #list of where each word in the input stream starts
         self._bit_starts = np.arange(self.NUM_FIELDS) * self.FIELD_WIDTH
@@ -143,20 +146,20 @@ class HardwareLinearRegression:
         return sw_ata, sw_atb
 
 
-    def verify(self, ip, num_samples=7375):
+    def stream_chunk(self, ip, samples):
         """Run hardware + software, compare, and print weights."""
-        test_x = np.random.uniform(0.5, 1.5, (num_samples, D))
-        test_y = np.random.uniform(0.5, 1.5, num_samples)
+        
+        test_y = samples[:, -1]
+        test_x = np.concatenate([samples[:,:-1], np.ones((samples.shape[0], 1))], axis=1)
 
         hw_ata, hw_atb, weights = self.run_hardware(ip, test_x, test_y)
 
-        start = time.time()
-        sw_ata, sw_atb = self.software_reference(test_x, test_y)
-        print(f"Software time: {time.time() - start:.6f}s")
+        self.weights = weights
 
-        print(f"AtA sample (0,0) — HW: {hw_ata[0,0]}  SW: {sw_ata[0,0]}")
-        print(f"Atb sample (0)   — HW: {hw_atb[0]}  SW: {sw_atb[0]}")
-        print(f"AtA match: {np.allclose(hw_ata, sw_ata, atol=0)}")
-        print(f"Atb match: {np.allclose(hw_atb, sw_atb, atol=0)}")
+    def print_equation(self):
+        weights = [param.item() for param in self.weights]
+        print(f"{weights[0]:.2f} * {self.collumn_headers[0]}", end="")
+        for weight_idx in range(1, len(self.weights)):
+            print(f" + {weights[weight_idx]:.2f} * {self.collumn_headers[weight_idx]}", end="") 
 
-        return weights
+        print("\n")

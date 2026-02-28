@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class OptimisedSoftwareLR:
     def __init__(self, initial_data, collumn_headers): 
         #initial data is sxp matrix
