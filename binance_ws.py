@@ -56,8 +56,7 @@ class BinanceWSClient:
         data = message.get("data", {})
 
         if "trade" in stream_name:
-            pass
-            #self._process_trades(data)
+            self._process_trades(data)
         if "depth" in stream_name:
             self._process_order_book(data)
     
@@ -78,17 +77,20 @@ class BinanceWSClient:
     def _process_order_book(self, data):
         asks  = [(float(price), float(qty)) for price, qty in data.get("asks", [])]
         bids = [(float(price), float(qty)) for price, qty in data.get("bids", [])]
-
+        
         self.order_book = {
             "asks": asks,
             "bids": bids
         }
         self.depth_count += 1
-        difference = asks[0][1] - bids[0][1]
-        print(f"asks: {asks[0]}, bids: {bids[0]}, qty diff: {difference}")
-      
+        #difference = asks[0][1] - bids[0][1]
+        #imballance = bids[0][1] /(bids[0][1] + asks[0][1])
+        #totalby = bids[0][1] * bids[0][0]
+        #totalsell = asks[0][1] * asks[0][0]
+        #print(f"asks: {asks[0]}, at: {totalsell:.5f}, bids: {bids[0]}, bt: {totalby:.5f}, qty diff: {difference:.5f}, imbalance: {imballance:.5f}")
+        #print(f"asks : {asks}")
 
-
+ 
     def volume_of_best(self, data):
         best_ask = [(float(), float(qyt))]
 
@@ -111,8 +113,8 @@ class BinanceWSClient:
                 price = recent_trade.price
                 vol = recent_trade.volume
                 ts = recent_trade.time
-
-                print(f"price = {price}, volume = {vol}, timestamp = {ts}")
+                is_buyer= recent_trade.is_buyer_maker
+                print(f"price = {price}, volume = {vol}, timestamp = {ts}, maker = {is_buyer}")
 
 
 
@@ -120,6 +122,8 @@ if '__main__' == __name__:
     wsc = BinanceWSClient()
     wsc.run_ws()
     wsc.print_data()
+
+    
 
 
 
