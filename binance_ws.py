@@ -1,5 +1,4 @@
 from collections import deque
-from typing_extensions import dataclass_transform
 import websocket
 import threading
 import json
@@ -78,14 +77,23 @@ class BinanceWSClient:
     def _process_order_book(self, data):
         asks  = [(float(price), float(qty)) for price, qty in data.get("asks", [])]
         bids = [(float(price), float(qty)) for price, qty in data.get("bids", [])]
+        
         self.order_book = {
             "asks": asks,
             "bids": bids
         }
         self.depth_count += 1
+        #difference = asks[0][1] - bids[0][1]
+        #imballance = bids[0][1] /(bids[0][1] + asks[0][1])
+        #totalby = bids[0][1] * bids[0][0]
+        #totalsell = asks[0][1] * asks[0][0]
+        #print(f"asks: {asks[0]}, at: {totalsell:.5f}, bids: {bids[0]}, bt: {totalby:.5f}, qty diff: {difference:.5f}, imbalance: {imballance:.5f}")
+        #print(f"asks : {asks}")
 
-        # print(f"asks: {asks}")
-        # print(f"bids: {bids}")
+ 
+    def volume_of_best(self, data):
+        best_ask = [(float(), float(qyt))]
+
 
 
     def get_trades_since(self, cutoff):
@@ -105,8 +113,8 @@ class BinanceWSClient:
                 price = recent_trade.price
                 vol = recent_trade.volume
                 ts = recent_trade.time
-
-                print(f"price = {price}, volume = {vol}, timestamp = {ts}")
+                is_buyer= recent_trade.is_buyer_maker
+                print(f"price = {price}, volume = {vol}, timestamp = {ts}, maker = {is_buyer}")
 
 
 
@@ -114,6 +122,8 @@ if '__main__' == __name__:
     wsc = BinanceWSClient()
     wsc.run_ws()
     wsc.print_data()
+
+    
 
 
 
