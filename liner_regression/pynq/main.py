@@ -53,7 +53,7 @@ class OptimisedSoftwareLR:
         #initial data is sxp matrix
         self.collumn_headers = collumn_headers
 
-        self.num_params = len(initial_data[0]) #actually equal to num_params + 1 as last collumn is output
+        self.num_params = len(collumn_headers) #actually equal to num_params + 1 as last collumn is output
         
         self.ata = np.zeros((self.num_params,self.num_params))
         self.atb = np.zeros((self.num_params,1))
