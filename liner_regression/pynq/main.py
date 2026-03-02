@@ -333,11 +333,11 @@ class LinearRegressionEngine:
     # INITIALISERS
     # ---------------------------------------------------------
 
-    def initialise_optimised_sw_lr(self, data_in, collumn_headers):
-        return OptimisedSoftwareLR(data_in, collumn_headers)
+    def initialise_optimised_sw_lr(self, collumn_headers):
+        return OptimisedSoftwareLR(collumn_headers)
 
-    def initialise_unoptimised_sw_lr(self, data_in, collumn_headers):
-        return UnoptimisedSoftwareLR(data_in, collumn_headers)
+    def initialise_unoptimised_sw_lr(self, collumn_headers):
+        return UnoptimisedSoftwareLR(collumn_headers)
 
     def initialise_hardware_lr(self, ip, collumn_headers):
         return HardwareLR(ip, collumn_headers)
