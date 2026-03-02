@@ -12,6 +12,10 @@ class UnoptimisedSoftwareLR:
 
         self.params = self.solve()
 
+        self.a = np.empty((0, self.num_params))
+        self.b = np.empty((0, 1))
+        self.params = None
+
     def solve(self):
         #solve function for doing (ATA)^-1 * (ATB)
         ata = self.a.T @ self.a

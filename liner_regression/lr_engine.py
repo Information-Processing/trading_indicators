@@ -9,18 +9,18 @@ from unoptimised_lr import UnoptimisedSoftwareLR
 #  [1,2,3,4,5]]
 
 FEATURE_RANGES = {
-    "VWAP": (95.0, 105.0),
-    "Vol": (1.0, 10.0),
-    "BookImb": (0.3, 0.75),
-    "Spread": (0.05, 0.25),
-    "BuySellRatio": (0.4, 2.5),
-    "LogRet": (-0.01, 0.01),
-    "TradeRate": (20.0, 70.0),
-    "Volatility": (0.03, 0.25),
-    "CVD": (-20.0, 45.0),
-    "BidDepth": (50.0, 500.0),
-    "AskDepth": (50.0, 500.0),
-    "PriceRange": (0.01, 2.0),
+    "VWAP": (-1.0, 1.0),
+    "Vol": (-1.0, 1.0),
+    "BookImb": (-1.0, 1.0),
+    "Spread": (-1.0, 1.0),
+    "BuySellRatio": (-1.0, 1.0),
+    "LogRet": (-1.0, 1.0),
+    "TradeRate": (-1.0, 1.0),
+    "Volatility": (-1.0, 1.0),
+    "CVD": (-1.0, 1.0),
+    "BidDepth": (-1.0, 1.0),
+    "AskDepth": (-1.0, 1.0),
+    "PriceRange": (-1.0, 1.0),
 }
 
 def generate_random_data(n_samples):
@@ -31,7 +31,9 @@ def generate_random_data(n_samples):
     features = np.column_stack(cols)
     #make the target (yval) a distribution of the inputs so its not completely rng
     true_weights = np.random.uniform(-1, 1, len(FEATURE_RANGES))
-    target = features @ true_weights + np.random.normal(0, 0.5, n_samples)
+    target = np.clip(
+        features @ true_weights + np.random.normal(0, 0.1, n_samples), -1.0, 1.0
+    )
 
     return np.column_stack([features, target])
 

@@ -21,6 +21,9 @@ class OptimisedSoftwareLR:
 
         self.params = self.ata_inv @ self.atb
 
+        self.atb = np.zeros((13,1))
+        self.ata = np.zeros((13,13))
+
     def print_equation(self):
         params = [param.item() for param in self.params]
         print(f"{params[0]:.2f} * {self.collumn_headers[0]}", end="")
