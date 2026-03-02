@@ -14,12 +14,12 @@ class Engine:
         self.netvoldelta = deque(maxlen = 10)
         
     def get_data(self):
-        # trades = self.binance_ws.trades
-        # order_book = self.binance_ws.order_book
-        # depth_count = self.binance_ws.depth_count
-        # last_price = self.binance_ws.last_price
-        # depth_count = self.binance_ws.depth_count
-        # trade_count = self.binance_ws.trade_count
+        trades = self.binance_ws.trades
+        order_book = self.binance_ws.order_book
+        depth_count = self.binance_ws.depth_count
+        last_price = self.binance_ws.last_price
+        depth_count = self.binance_ws.depth_count
+        trade_count = self.binance_ws.trade_count
         while(1):
             now = time.time()
             
@@ -27,9 +27,11 @@ class Engine:
             trades_30 = self.binance_ws.get_trades_since(now - 31.0)
             trades_60 = self.binance_ws.get_trades_since(now - 61.0) 
 
-            vwma_10 = self.ce.vwma_calculate(trades, now, 10.0)
-            
+            vwma_10 = self.ce.vwma_calculate(trades, now, 11.0)
+            vwma_5 = self.ce.vwma_calculate(trades, now, 6.0)
+
             shortterm_trades = self.binance_ws.get_trades_since(now - 1)
+
             total_sell = self.ce.sell_total(shortterm_trades, now, 1)
             total_brought =  self.ce.bought_total(shortterm_trades,now,1)
             self.netvoldelta.append(total_brought - total_sell)
@@ -55,8 +57,6 @@ class Engine:
             else: 
                 topasks = asks[0]
                 topbids = bids[0]
-                
-                
             
             time.sleep (1)
             imballance = self.ce.imbalance_calc(topasks, topbids)
@@ -71,6 +71,23 @@ class Engine:
 
             #print(f"b drop{bid_dropoff:.7}, a drop{ask_dropoff:.7}, b tot {bidstotal:.7}, a tot{askstotal:.7}")
             #print(vwma_10)
+
+            ret_dict = {
+                    "imballance" : imballance,
+                    "asks_total" : askstotal,
+                    "bids_total" : bidstotal,
+                    "ask_dropoff" : ask_dropoff,
+                    "bid_dropoff" : bid_dropoff,
+                    "ask_spread" : ask_spread,
+                    "vwma_10" : vwma_10,
+                    "vwma_5" : vwma_5,
+                    "total_sell": total_sell,
+                    "total_brought" : total_brought,
+                    "stlt" : stlt,
+                    "stv" : stv,
+                    }
+
+            return ret_dict
 
 
         
