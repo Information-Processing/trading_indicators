@@ -3,6 +3,7 @@ from calc_engine import CalculationEngine
 import time
 from collections import deque
 import numpy as np
+import threading
 
 
 class Engine:
@@ -12,6 +13,7 @@ class Engine:
         
         self.ce = CalculationEngine()
         self.netvoldelta = deque(maxlen = 10)
+        self.ret_dict = {}
         
     def get_data(self):
         trades = self.binance_ws.trades
@@ -87,14 +89,14 @@ class Engine:
                     "stv" : stv,
                     }
 
-            return ret_dict
+            self.ret_dict = ret_dict
 
 
         
-
+import thre
 if __name__ == '__main__':
     eng = Engine()
-    eng.get_data()
+    threading.Thread(target=eng.get_data, daemon=True)
     eng = Engine()
 
 
