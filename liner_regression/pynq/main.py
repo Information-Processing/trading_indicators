@@ -1,3 +1,22 @@
+#===========================================================================
+#1. Imports
+#===========================================================================
+import numpy as np
+from pynq import Overlay
+import time
+from pynq import allocate
+
+#===========================================================================
+#2. Overlay Setup
+#===========================================================================
+
+ol = Overlay("outer_product_2.1_o.bit")
+ip = ol.outer_product_accum_0
+
+#===========================================================================
+#3. Hardware/Software Classes
+#===========================================================================
+
 class UnoptimisedSoftwareLR:
     def __init__(self, collumn_headers):
         self.collumn_headers = collumn_headers
