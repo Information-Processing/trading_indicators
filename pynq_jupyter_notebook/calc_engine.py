@@ -25,8 +25,8 @@ class CalculationEngine:
 
     def imbalance_calc(self, asks, bids):
         #bids is in form (price, quantitty)
-        best_bid_qty = bids[0][1]
-        best_ask_qty = asks[0][1]
+        best_bid_qty = bids[1]
+        best_ask_qty = asks[1]
 
         denominator = best_bid_qty + best_ask_qty
         if denominator == 0:
