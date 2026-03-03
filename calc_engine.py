@@ -15,6 +15,8 @@ class CalculationEngine:
         prices = np.array([t.price for t in recent_trades])
         volumes = np.array([t.volume for t in recent_trades])
         total_volume = volumes.sum()
+        if total_volume == 0:
+            return 0.0
         weighted_prices_sum = (prices * volumes).sum()
 
         vwap = weighted_prices_sum / total_volume
@@ -22,7 +24,15 @@ class CalculationEngine:
         return float(vwap)
 
     def imbalance_calc(self, asks, bids):
-        return bids[1] / (bids[1] + asks[1])
+        #bids is in form (price, quantitty)
+        best_bid_qty = bids[0][1]
+        best_ask_qty = asks[0][1]
+
+        denominator = best_bid_qty + best_ask_qty
+        if denominator == 0:
+            return 0.0
+
+        return best_bid_qty / denominator
 
     def price_depth(self, levels):
         arr = np.array(levels)
@@ -45,6 +55,8 @@ class CalculationEngine:
     def dropoff(self, levels, cutoff):
         top = self.topvolume(levels, cutoff)
         bottom = self.bottomvolume(levels, cutoff)
+        if top == 0:
+            return 0.0
         return bottom / top
 
     def depth_average(self, depth_value):

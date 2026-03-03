@@ -92,11 +92,8 @@ class Engine:
             self.ret_dict = ret_dict
 
 
-        
-import thre
 if __name__ == '__main__':
     eng = Engine()
-    threading.Thread(target=eng.get_data, daemon=True)
-    eng = Engine()
+    threading.Thread(target=eng.get_data, daemon=True).start()
 
 
