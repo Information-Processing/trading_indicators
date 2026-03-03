@@ -1,7 +1,7 @@
 from binance_ws import BinanceWSClient
 from calc_engine import CalculationEngine 
 import time
-from collections import deque
+from collections import deque, defaultdict
 import numpy as np
 import threading
 
@@ -13,12 +13,11 @@ class Engine:
         
         self.ce = CalculationEngine()
         self.netvoldelta = deque(maxlen = 10)
-        self.ret_dict = {}
+        self.ret_dict = defaultdict(list)
         
     def get_data(self):
         trades = self.binance_ws.trades
         order_book = self.binance_ws.order_book
-        depth_count = self.binance_ws.depth_count
         last_price = self.binance_ws.last_price
         depth_count = self.binance_ws.depth_count
         trade_count = self.binance_ws.trade_count
@@ -73,27 +72,29 @@ class Engine:
 
             #print(f"b drop{bid_dropoff:.7}, a drop{ask_dropoff:.7}, b tot {bidstotal:.7}, a tot{askstotal:.7}")
             #print(vwma_10)
-
-            ret_dict = {
-                    "imballance" : imballance,
-                    "asks_total" : askstotal,
-                    "bids_total" : bidstotal,
-                    "ask_dropoff" : ask_dropoff,
-                    "bid_dropoff" : bid_dropoff,
-                    "ask_spread" : ask_spread,
-                    "vwma_10" : vwma_10,
-                    "vwma_5" : vwma_5,
-                    "total_sell": total_sell,
-                    "total_brought" : total_brought,
-                    "stlt" : stlt,
-                    "stv" : stv,
-                    }
-
-            self.ret_dict = ret_dict
+            self.ret_dict["imballance"].append(imballance)
+            self.ret_dict["asks_total"].append(askstotal)
+            self.ret_dict["bids_total"].append(bidstotal)
+            self.ret_dict["ask_dropoff"].append(ask_dropoff)
+            self.ret_dict["bid_dropoff"].append(bid_dropoff)
+            self.ret_dict["ask_spread"].append(ask_spread)
+            self.ret_dict["vwma_10"].append(vwma_10)
+            self.ret_dict["vwma_5"].append(vwma_5)
+            self.ret_dict["total_sell"].append(total_sell)
+            self.ret_dict["total_brought"].append(total_brought)
+            self.ret_dict["stlt"].append(sum(stlt))
+            self.ret_dict["stv"].append(sum(stv))
+            print(self.ret_dict)
 
 
 if __name__ == '__main__':
     eng = Engine()
     threading.Thread(target=eng.get_data, daemon=True).start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
 
 
