@@ -33,6 +33,8 @@ class BinanceWSClient:
             on_close=self.on_close
         ) 
 
+        self.lock = threading.Lock()
+
     def on_open(self, ws):
         print('Websocket Open')
 
@@ -67,8 +69,8 @@ class BinanceWSClient:
         is_buyer_maker =  bool(data["m"])
 
         new_trade = Trade(price, volume, timestamp, is_buyer_maker)
-
-        self.trades.append(new_trade)
+        with self.lock:
+            self.trades.append(new_trade)
 
         self.last_price = price 
         self.trade_count += 1
@@ -98,8 +100,10 @@ class BinanceWSClient:
 
     def get_trades_since(self, cutoff):
         # can be optimised
+        with self.lock:
+            trades_snapshot = list(self.trades)
         result = []
-        for trade in reversed(self.trades):
+        for trade in reversed(trades_snapshot):
             if trade.time < cutoff:
                 break
             result.append(trade)
@@ -109,7 +113,7 @@ class BinanceWSClient:
     def print_data(self):
         while 1:
             if len(self.trades) > 0:
-                recent_trade = self.trades.pop()
+                recent_trade = self.trades[-1]
                 price = recent_trade.price
                 vol = recent_trade.volume
                 ts = recent_trade.time
