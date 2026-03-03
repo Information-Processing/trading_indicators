@@ -79,11 +79,11 @@ class BinanceWSClient:
     def _process_order_book(self, data):
         asks  = [(float(price), float(qty)) for price, qty in data.get("asks", [])]
         bids = [(float(price), float(qty)) for price, qty in data.get("bids", [])]
-        
-        self.order_book = {
-            "asks": asks,
-            "bids": bids
-        }
+        with self.lock:
+            self.order_book = {
+                "asks": asks,
+                "bids": bids
+            }
         self.depth_count += 1
         #difference = asks[0][1] - bids[0][1]
         #imballance = bids[0][1] /(bids[0][1] + asks[0][1])
