@@ -148,7 +148,6 @@ class HardwareLR:
         self.num_params = len(column_headers)
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
-        self._debug_done = False
 
         if addr_atb is not None:
             self.ADDR_ATB_BASE = addr_atb
@@ -161,33 +160,6 @@ class HardwareLR:
 
         self.ata = np.zeros((self.num_params, self.num_params), dtype=np.float64)
         self.atb = np.zeros((self.num_params, 1), dtype=np.float64)
-
-    # ── diagnostics ──
-
-    @staticmethod
-    def dump_register_map(ip):
-        """Print the IP's register map to identify correct addresses."""
-        print("=== IP Register Map ===")
-        try:
-            print(ip.register_map)
-        except Exception as e:
-            print(f"Could not read register map: {e}")
-        print("=======================")
-
-    def scan_nonzero_registers(self, start=0x000, end=0x1000, step=4):
-        """
-        Scan AXI-Lite address space for non-zero values.
-        Run AFTER one kernel invocation to see where AtA/Atb data lives.
-        """
-        print(f"=== Scanning registers 0x{start:03X}–0x{end:03X} ===")
-        for addr in range(start, end, step):
-            try:
-                val = self.ip.read(addr)
-                if val != 0:
-                    print(f"  0x{addr:04X}: 0x{val:08X}  ({val})")
-            except Exception:
-                break
-        print("=== End scan ===")
 
     # ── packing helpers ──
 
@@ -215,15 +187,6 @@ class HardwareLR:
             pass
 
         hw_ata, hw_atb = self._read_hw_results()
-
-        if not self._debug_done:
-            self._debug_done = True
-            print(f"[HW DEBUG] ATB base=0x{self.ADDR_ATB_BASE:04X}, "
-                  f"ATA base=0x{self.ADDR_ATA_BASE:04X}")
-            print(f"[HW DEBUG] Atb: {hw_atb.flatten()}")
-            print(f"[HW DEBUG] AtA diagonal: {np.diag(hw_ata)}")
-            print(f"[HW DEBUG] AtA non-zero: {np.count_nonzero(hw_ata)} / {hw_ata.size}")
-            print(f"[HW DEBUG] Atb non-zero: {np.count_nonzero(hw_atb)} / {hw_atb.size}")
 
         self.ata += hw_ata
         self.atb += hw_atb
@@ -295,8 +258,6 @@ class LinearRegressionEngine:
     def __init__(self, ip):
         feat_names = list(FEATURE_RANGES.keys())[:-1]
         column_headers = feat_names + ["BIAS"]
-
-        HardwareLR.dump_register_map(ip)
 
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(column_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(column_headers)
