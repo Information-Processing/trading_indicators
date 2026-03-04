@@ -155,7 +155,7 @@ class HardwareLR:
 
         atb_word_start = self.ADDR_ATB_BASE // 4
         atb_flat = np.array(self.ip.mmio.array[atb_word_start : atb_word_start + self.D], dtype=np.uint32)
-        hw_atb = self._sign_extend_18(atb_flat)
+        hw_atb = self._sign_extend_18(atb_flat).reshape(self.D, 1)
         return hw_ata, hw_atb
 
     def _sign_extend_18(self, vals):
