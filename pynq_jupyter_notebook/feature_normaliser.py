@@ -39,16 +39,20 @@ class FeatureNormaliser:
         z = np.clip(z, -3.0, 3.0)
         return np.rint(z * (self.quant_max / 3.0)).astype(np.int32)
 
-    def denormalise_weights(self, weights_norm):
+    def denormalise_weights(self, weights_norm, bias_scale=1):
         """
         Convert weights from normalized/quantized space back to original units.
         weights_norm: (D,) or (D, 1) where D = num_features (13).
         First 12 entries are feature weights, last entry is the bias weight.
 
-        In normalized space:  ỹ = Σ(w̃_i · x̃_i) + w̃_bias
+        bias_scale: the integer value used for the bias column during regression.
+                    SW uses 1, HW should use a larger value (e.g. round(quant_max/3))
+                    to avoid fixed-point truncation in the FPGA flush stage.
+
+        In normalized space:  ỹ = Σ(w̃_i · x̃_i) + w̃_bias · B
         In original space:    y = Σ(w_i · x_i) + b
         where w_i = w̃_i · σ_y / σ_i
-            b   = w̃_bias · σ_y / s + μ_y − Σ(w_i · μ_i)
+              b   = w̃_bias · B · σ_y / s + μ_y − Σ(w_i · μ_i)
         """
         orig_shape = weights_norm.shape
         w = weights_norm.flatten()
@@ -60,6 +64,6 @@ class FeatureNormaliser:
         s = self.quant_max / 3.0
 
         w_feat = w[:-1] * (target_std / feat_std)
-        w_bias = w[-1] * (target_std / s) + target_mean - np.sum(w_feat * feat_mean)
+        w_bias = w[-1] * bias_scale * (target_std / s) + target_mean - np.sum(w_feat * feat_mean)
 
         return np.concatenate([w_feat, [w_bias]]).reshape(orig_shape)

@@ -114,9 +114,10 @@ class HardwareLR:
     ADDR_ATB_BASE    = 0x040
     ADDR_ATA_BASE    = 0x400
 
-    def __init__(self, ip, column_headers, max_samples=32768):
+    def __init__(self, ip, column_headers, bias_scale=1, max_samples=32768):
         self.ip = ip
         self.column_headers = column_headers
+        self.bias_scale = bias_scale
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
         self._mem_in = allocate(shape=(max_samples, self.NUM_WORDS), dtype=np.int32)
@@ -160,11 +161,14 @@ class HardwareLR:
 
     def stream_chunk(self, samples_int):
         test_y = samples_int[:, -1].astype(np.int32)
-        test_x = np.concatenate([samples_int[:, :-1], np.ones((samples_int.shape[0], 1), dtype=np.int32)], axis=1)
+        test_x = np.concatenate([
+            samples_int[:, :-1],
+            np.full((samples_int.shape[0], 1), self.bias_scale, dtype=np.int32)
+        ], axis=1)
         self.weights = self.run_hardware(test_x, test_y)
 
     def print_equation(self, normaliser):
-        denormed = normaliser.denormalise_weights(self.weights)
+        denormed = normaliser.denormalise_weights(self.weights, bias_scale=self.bias_scale)
         p = [v.item() for v in denormed.flatten()]
         print(f"{p[0]:.2f}*{self.column_headers[0]}", end="")
         for i in range(1, len(p) - 1):
@@ -183,12 +187,12 @@ class LinearRegressionEngine:
         
         num_features = len(FEATURE_RANGES)
         self.normaliser = FeatureNormaliser(num_features, quant_bits=10)
-
+        hw_bias_scale = int(round(self.normaliser.quant_max / 3.0))
 
         self.ip = ip
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(collumn_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(collumn_headers)
-        self.hardware_lr = HardwareLR(ip, collumn_headers)
+        self.hardware_lr = HardwareLR(ip, collumn_headers, bias_scale=hw_bias_scale)
 
     def preprocess_samples(self, samples):
         return self.normaliser.normalise_and_quantise(samples)
