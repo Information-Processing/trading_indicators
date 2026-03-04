@@ -1,5 +1,6 @@
 from binance_ws import BinanceWSClient
 from calc_engine import CalculationEngine 
+from feature_normaliser import FeatureNormaliser
 from pynq import allocate
 import time
 from collections import deque, defaultdict
@@ -62,7 +63,8 @@ class UnoptimisedSoftwareLR:
         self.b = np.vstack([self.b, new_b])
         self.params = self.solve()
 
-    def print_equation(self):
+    def print_equation(self, normaliser):
+        self.params = normaliser.denormalise_weights(self.params)
         params = [p.item() for p in self.params]
         print(f"{params[0]:.2f}*{self.collumn_headers[0]}", end="")
         for i in range(1, self.num_params):
@@ -88,7 +90,8 @@ class OptimisedSoftwareLR:
     def recalculate_params(self):
         self.params = np.linalg.pinv(self.ata) @ self.atb
 
-    def print_equation(self):
+    def print_equation(self, normaliser):
+        self.params = normaliser.denormalise_weights(self.params)
         params = [param.item() for param in self.params]
         print(f"{params[0]:.2f}*{self.collumn_headers[0]}", end="")
         for i in range(1, self.num_params):
@@ -160,7 +163,8 @@ class HardwareLR:
         test_x = np.concatenate([samples_int[:, :-1], np.ones((samples_int.shape[0], 1), dtype=np.int32)], axis=1)
         self.weights = self.run_hardware(test_x, test_y)
 
-    def print_equation(self):
+    def print_equation(self, normaliser):
+        self.weights = normaliser.denormalise_weights(self.weights)
         weights = [w.item() for w in self.weights]
         print(f"{weights[0]:.2f}*{self.column_headers[0]}", end="")
         for i in range(1, len(weights)):
@@ -177,6 +181,10 @@ class LinearRegressionEngine:
         feat_names = list(FEATURE_RANGES.keys())[:-1] 
         collumn_headers = feat_names + ['BIAS']
         
+        num_features = len(FEATURE_RANGES)
+        self.normaliser = FeatureNormaliser(num_features, quant_bits=10)
+
+
         self.ip = ip
         self.scale = 32
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(collumn_headers)
@@ -184,7 +192,7 @@ class LinearRegressionEngine:
         self.hardware_lr = HardwareLR(ip, collumn_headers)
 
     def preprocess_samples(self, samples):
-        return np.rint(samples * self.scale).astype(np.int32)
+        return self.normaliser.normalise_and_quantise(samples)
 
     def test_all_lr(self, ret_dict):
         samples_float = bundle_dict_to_numpy(ret_dict)
@@ -202,11 +210,11 @@ class LinearRegressionEngine:
 
     def print_all_equations(self):
         print("\n[Optimised SW]")
-        self.optimised_sw_lr.print_equation()
+        self.optimised_sw_lr.print_equation(self.normaliser)
         print("\n[UNOPTIMISED SW]")
-        self.unoptimised_sw_lr.print_equation()
+        self.unoptimised_sw_lr.print_equation(self.normaliser)
         print("[HARDWARE FPGA]")
-        self.hardware_lr.print_equation()
+        self.hardware_lr.print_equation(self.normaliser)
 
 class Engine:
     def __init__(self, ip):
@@ -267,6 +275,7 @@ if __name__ == '__main__':
                 data_copy = {k: list(v) for k, v in eng.ret_dict.items()}
                 eng.lr_engine.test_all_lr(data_copy)
                 eng.lr_engine.print_all_equations()
+                eng.ret_dict.clear()
             else:
                 print(f"Warming up... {len(eng.ret_dict['trade_arrival_rate'])}/15")
     except KeyboardInterrupt:
