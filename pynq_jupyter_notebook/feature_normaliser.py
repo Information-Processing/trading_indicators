@@ -39,7 +39,27 @@ class FeatureNormaliser:
           z = np.clip(z, -3.0, 3.0)
           return np.rint(z * (self.quant_max / 3.0)).astype(np.int32)
 
-      def denormalize_weights(self, weights_norm):
-          feat_std = self.std[:-1]  
+      def denormalise_weights(self, weights_norm):
+          """
+          Convert weights from normalized/quantized space back to original units.
+          weights_norm: (D,) or (D, 1) where D = num_features (13).
+          First 12 entries are feature weights, last entry is the bias weight.
+
+          In normalized space:  ỹ = Σ(w̃_i · x̃_i) + w̃_bias
+          In original space:    y = Σ(w_i · x_i) + b
+          where w_i = w̃_i · σ_y / σ_i
+                b   = w̃_bias · σ_y / s + μ_y − Σ(w_i · μ_i)
+          """
+          orig_shape = weights_norm.shape
+          w = weights_norm.flatten()
+
+          feat_std = self.std[:-1]
           target_std = self.std[-1]
-          return weights_norm * (target_std / feat_std)
+          feat_mean = self._mean[:-1]
+          target_mean = self._mean[-1]
+          s = self.quant_max / 3.0
+
+          w_feat = w[:-1] * (target_std / feat_std)
+          w_bias = w[-1] * (target_std / s) + target_mean - np.sum(w_feat * feat_mean)
+
+          return np.concatenate([w_feat, [w_bias]]).reshape(orig_shape)

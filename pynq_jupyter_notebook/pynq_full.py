@@ -64,12 +64,12 @@ class UnoptimisedSoftwareLR:
         self.params = self.solve()
 
     def print_equation(self, normaliser):
-        self.params = normaliser.denormalise_weights(self.params)
-        params = [p.item() for p in self.params]
-        print(f"{params[0]:.2f}*{self.collumn_headers[0]}", end="")
-        for i in range(1, self.num_params):
-            print(f" + {params[i]:.2f}*{self.collumn_headers[i]}", end="")
-        print("\n")
+        denormed = normaliser.denormalise_weights(self.params)
+        p = [v.item() for v in denormed.flatten()]
+        print(f"{p[0]:.2f}*{self.collumn_headers[0]}", end="")
+        for i in range(1, self.num_params - 1):
+            print(f" + {p[i]:.2f}*{self.collumn_headers[i]}", end="")
+        print(f" + {p[-1]:.2f}")
 
 class OptimisedSoftwareLR:
     def __init__(self, collumn_headers): 
@@ -91,12 +91,12 @@ class OptimisedSoftwareLR:
         self.params = np.linalg.pinv(self.ata) @ self.atb
 
     def print_equation(self, normaliser):
-        self.params = normaliser.denormalise_weights(self.params)
-        params = [param.item() for param in self.params]
-        print(f"{params[0]:.2f}*{self.collumn_headers[0]}", end="")
-        for i in range(1, self.num_params):
-            print(f" + {params[i]:.2f}*{self.collumn_headers[i]}", end="")
-        print("\n")
+        denormed = normaliser.denormalise_weights(self.params)
+        p = [v.item() for v in denormed.flatten()]
+        print(f"{p[0]:.2f}*{self.collumn_headers[0]}", end="")
+        for i in range(1, self.num_params - 1):
+            print(f" + {p[i]:.2f}*{self.collumn_headers[i]}", end="")
+        print(f" + {p[-1]:.2f}")
 
 # ---------------------------------------------------------
 # HARDWARE ENGINE (Requires D=13)
@@ -164,12 +164,12 @@ class HardwareLR:
         self.weights = self.run_hardware(test_x, test_y)
 
     def print_equation(self, normaliser):
-        self.weights = normaliser.denormalise_weights(self.weights)
-        weights = [w.item() for w in self.weights]
-        print(f"{weights[0]:.2f}*{self.column_headers[0]}", end="")
-        for i in range(1, len(weights)):
-            print(f" + {weights[i]:.2f}*{self.column_headers[i]}", end="")
-        print("\n")
+        denormed = normaliser.denormalise_weights(self.weights)
+        p = [v.item() for v in denormed.flatten()]
+        print(f"{p[0]:.2f}*{self.column_headers[0]}", end="")
+        for i in range(1, len(p) - 1):
+            print(f" + {p[i]:.2f}*{self.column_headers[i]}", end="")
+        print(f" + {p[-1]:.2f}")
 
 # ---------------------------------------------------------
 # MAIN ENGINES
@@ -186,7 +186,6 @@ class LinearRegressionEngine:
 
 
         self.ip = ip
-        self.scale = 32
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(collumn_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(collumn_headers)
         self.hardware_lr = HardwareLR(ip, collumn_headers)
