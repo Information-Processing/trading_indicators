@@ -1,6 +1,5 @@
 from binance_ws import BinanceWSClient
 from calc_engine import CalculationEngine 
-from feature_normaliser import FeatureNormaliser
 from pynq import allocate
 import time
 from collections import deque, defaultdict
@@ -20,8 +19,8 @@ FEATURE_RANGES = {
     "total_sell": 0,
     "total_brought" : 0,
     "stv" : 0,
-    "last_price": 0,          # 12th Feature
-    "trade_arrival_rate" : 0  # 13th Column (The Target Y)
+    "trade_arrival_rate" : 0,  # 13th Column (The Target Y)
+    "last_price": 0          # 12th Feature
 }
 
 # 2. ROBUST DATA PACKING
@@ -117,13 +116,17 @@ class HardwareLR:
     def __init__(self, ip, column_headers, bias_scale=1, max_samples=32768):
         self.ip = ip
         self.column_headers = column_headers
+        
+        self.num_params = len(self.column_headers) # Should be 13
         self.bias_scale = bias_scale
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
         self._mem_in = allocate(shape=(max_samples, self.NUM_WORDS), dtype=np.int32)
         self._mem_addr_lo = int(self._mem_in.device_address) & 0xFFFFFFFF
         self._mem_addr_hi = (int(self._mem_in.device_address) >> 32) & 0xFFFFFFFF
-
+        self.ata = np.zeros((self.num_params, self.num_params))
+        self.atb = np.zeros((self.num_params, 1))
+        
     def run_hardware(self, test_x_int, test_y_int):
         n = len(test_y_int)
         self._mem_in[:n, 0] = test_y_int
@@ -139,7 +142,11 @@ class HardwareLR:
             pass
 
         hw_ata, hw_atb = self.read_hw_results()
-        return self.compute_weights(hw_ata, hw_atb)
+        
+        self.ata += hw_ata
+        self.atb += hw_atb
+        
+        return self.compute_weights(self.ata, self.atb)
 
     def read_hw_results(self):
         ata_word_start = self.ADDR_ATA_BASE // 4
