@@ -46,6 +46,79 @@ def bundle_dict_to_numpy(data_dict):
 
 
 # ---------------------------------------------------------
+# FLOAT NORMALISER (z-score only — no integer quantisation)
+# ---------------------------------------------------------
+
+class FloatNormaliser:
+    """
+    Streaming z-score normaliser with Welford's online algorithm.
+    Normalises to [-3, 3] range so values fit inside ap_fixed<18,13>.
+    Unlike FeatureNormaliser, this does NOT quantise to integers —
+    source2.cpp handles the float-to-fixed conversion in hardware.
+    """
+
+    def __init__(self, num_features):
+        self.num_features = num_features
+        self.n = 0
+        self._mean = np.zeros(num_features)
+        self._m2 = np.zeros(num_features)
+
+    def _update_stats(self, batch):
+        batch_n = batch.shape[0]
+        if batch_n == 0:
+            return
+        batch_mean = batch.mean(axis=0)
+        batch_m2 = batch.var(axis=0, ddof=0) * batch_n
+        if self.n == 0:
+            self._mean = batch_mean
+            self._m2 = batch_m2
+        else:
+            total_n = self.n + batch_n
+            delta = batch_mean - self._mean
+            self._mean += delta * (batch_n / total_n)
+            self._m2 += batch_m2 + delta ** 2 * (self.n * batch_n / total_n)
+        self.n += batch_n
+
+    @property
+    def std(self):
+        if self.n < 2:
+            return np.ones(self.num_features)
+        s = np.sqrt(self._m2 / (self.n - 1))
+        s[s < 1e-10] = 1.0
+        return s
+
+    def normalise(self, samples):
+        """Z-score normalise and clip to [-3, 3]. Returns float64."""
+        self._update_stats(samples)
+        z = (samples - self._mean) / self.std
+        return np.clip(z, -3.0, 3.0)
+
+    def denormalise_weights(self, weights_norm):
+        """
+        Convert weights from normalised space back to original units.
+
+        In normalised space:  ỹ = Σ(w̃_i · x̃_i) + w̃_bias
+        where x̃_i = (x_i − μ_i) / σ_i,  ỹ = (y − μ_y) / σ_y
+
+        In original space:   y = Σ(w_i · x_i) + b
+        where w_i = w̃_i · σ_y / σ_i
+              b   = w̃_bias · σ_y + μ_y − Σ(w_i · μ_i)
+        """
+        orig_shape = weights_norm.shape
+        w = weights_norm.flatten()
+
+        feat_std = self.std[:-1]
+        target_std = self.std[-1]
+        feat_mean = self._mean[:-1]
+        target_mean = self._mean[-1]
+
+        w_feat = w[:-1] * (target_std / feat_std)
+        w_bias = w[-1] * target_std + target_mean - np.sum(w_feat * feat_mean)
+
+        return np.concatenate([w_feat, [w_bias]]).reshape(orig_shape)
+
+
+# ---------------------------------------------------------
 # SOFTWARE LINEAR REGRESSION (raw floats, no quantisation)
 # ---------------------------------------------------------
 
@@ -141,13 +214,14 @@ class HardwareLR:
     ADDR_ATB_BASE    = 0x080   # D   × acc_t (64-bit, 2 words each)
     ADDR_ATA_BASE    = 0x800   # D*D × acc_t (64-bit, 2 words each)
 
-    def __init__(self, ip, column_headers, max_samples=32768,
-                 addr_atb=None, addr_ata=None):
+    def __init__(self, ip, column_headers, num_raw_features,
+                 max_samples=32768, addr_atb=None, addr_ata=None):
         self.ip = ip
         self.column_headers = column_headers
         self.num_params = len(column_headers)
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
+        self.normaliser = FloatNormaliser(num_raw_features)
 
         if addr_atb is not None:
             self.ADDR_ATB_BASE = addr_atb
@@ -225,12 +299,15 @@ class HardwareLR:
         """
         Accepts raw float samples with shape (N, 13).
         Last column is the target; first 12 are features.
-        A bias column of 1.0 is appended automatically.
+        Data is z-score normalised to fit ap_fixed<18,13> range,
+        then a bias column of 1.0 is appended.
         """
-        test_y = samples_float[:, -1].astype(np.float32)
+        samples_norm = self.normaliser.normalise(samples_float)
+
+        test_y = samples_norm[:, -1].astype(np.float32)
         test_x = np.concatenate([
-            samples_float[:, :-1].astype(np.float32),
-            np.ones((samples_float.shape[0], 1), dtype=np.float32),
+            samples_norm[:, :-1].astype(np.float32),
+            np.ones((samples_norm.shape[0], 1), dtype=np.float32),
         ], axis=1)
 
         n = len(test_y)
@@ -241,7 +318,8 @@ class HardwareLR:
         self.weights = np.linalg.pinv(self.ata) @ self.atb
 
     def print_equation(self):
-        p = self.weights.flatten()
+        denormed = self.normaliser.denormalise_weights(self.weights)
+        p = denormed.flatten()
         parts = [f"{p[0]:.6g}*{self.column_headers[0]}"]
         for i in range(1, len(p) - 1):
             parts.append(f"{p[i]:.6g}*{self.column_headers[i]}")
@@ -258,10 +336,11 @@ class LinearRegressionEngine:
     def __init__(self, ip):
         feat_names = list(FEATURE_RANGES.keys())[:-1]
         column_headers = feat_names + ["BIAS"]
+        num_raw_features = len(FEATURE_RANGES)
 
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(column_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(column_headers)
-        self.hardware_lr = HardwareLR(ip, column_headers)
+        self.hardware_lr = HardwareLR(ip, column_headers, num_raw_features)
 
     def test_all_lr(self, ret_dict):
         samples_float = bundle_dict_to_numpy(ret_dict)
