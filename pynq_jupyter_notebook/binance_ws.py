@@ -45,10 +45,17 @@ class BinanceWSClient:
         print(err)
 
     def on_close(self, ws, code, reason):
-        print('Ws closed')
+        print(f'Ws closed (code={code}, reason={reason})')
+
+    def _run_forever_with_reconnect(self):
+        while True:
+            self.ws.run_forever(ping_interval=20, ping_timeout=10)
+            print("WebSocket disconnected, reconnecting in 3s...")
+            import time
+            time.sleep(3)
 
     def run_ws(self):
-        self.t = threading.Thread(target=self.ws.run_forever, daemon=True)
+        self.t = threading.Thread(target=self._run_forever_with_reconnect, daemon=True)
         self.t.start()
 
     def _handle_message(self, raw_message):
