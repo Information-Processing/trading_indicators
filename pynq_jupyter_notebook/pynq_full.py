@@ -105,7 +105,11 @@ class HardwareLR:
     D = 13  # 12 features + bias
     FIELD_WIDTH = 18
     FIELD_MASK = (1 << FIELD_WIDTH) - 1
-    NUM_WORDS = 16 
+    NUM_WORDS = 16
+
+    # ap_fixed<18,13> max ≈ 4096; worst-case ATA diagonal per sample ≈ 255
+    # safe batch: floor(4096 / 255) = 16
+    HW_BATCH_SIZE = 16
 
     ADDR_AP_CTRL     = 0x000
     ADDR_MEM_IN_DATA = 0x010
@@ -116,8 +120,7 @@ class HardwareLR:
     def __init__(self, ip, column_headers, bias_scale=1, max_samples=32768):
         self.ip = ip
         self.column_headers = column_headers
-        
-        self.num_params = len(self.column_headers) # Should be 13
+        self.num_params = len(self.column_headers)
         self.bias_scale = bias_scale
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
@@ -126,8 +129,9 @@ class HardwareLR:
         self._mem_addr_hi = (int(self._mem_in.device_address) >> 32) & 0xFFFFFFFF
         self.ata = np.zeros((self.num_params, self.num_params))
         self.atb = np.zeros((self.num_params, 1))
-        
-    def run_hardware(self, test_x_int, test_y_int):
+
+    def _run_hw_batch(self, test_x_int, test_y_int):
+        """Send a small batch to the FPGA and accumulate ATA/ATB in float64."""
         n = len(test_y_int)
         self._mem_in[:n, 0] = test_y_int
         self._mem_in[:n, 1:14] = test_x_int
@@ -141,20 +145,23 @@ class HardwareLR:
         while not (self.ip.read(self.ADDR_AP_CTRL) & 0x02):
             pass
 
-        hw_ata, hw_atb = self.read_hw_results()
-        
+        hw_ata, hw_atb = self._read_hw_results()
         self.ata += hw_ata
         self.atb += hw_atb
-        
-        return self.compute_weights(self.ata, self.atb)
 
-    def read_hw_results(self):
+    def _read_hw_results(self):
         ata_word_start = self.ADDR_ATA_BASE // 4
-        ata_flat = np.array(self.ip.mmio.array[ata_word_start : ata_word_start + self.D**2], dtype=np.uint32)
+        ata_flat = np.array(
+            self.ip.mmio.array[ata_word_start : ata_word_start + self.D ** 2],
+            dtype=np.uint32
+        )
         hw_ata = self._sign_extend_18(ata_flat).reshape(self.D, self.D)
 
         atb_word_start = self.ADDR_ATB_BASE // 4
-        atb_flat = np.array(self.ip.mmio.array[atb_word_start : atb_word_start + self.D], dtype=np.uint32)
+        atb_flat = np.array(
+            self.ip.mmio.array[atb_word_start : atb_word_start + self.D],
+            dtype=np.uint32
+        )
         hw_atb = self._sign_extend_18(atb_flat).reshape(self.D, 1)
         return hw_ata, hw_atb
 
@@ -172,7 +179,13 @@ class HardwareLR:
             samples_int[:, :-1],
             np.full((samples_int.shape[0], 1), self.bias_scale, dtype=np.int32)
         ], axis=1)
-        self.weights = self.run_hardware(test_x, test_y)
+
+        n = len(test_y)
+        for start in range(0, n, self.HW_BATCH_SIZE):
+            end = min(start + self.HW_BATCH_SIZE, n)
+            self._run_hw_batch(test_x[start:end], test_y[start:end])
+
+        self.weights = self.compute_weights(self.ata, self.atb)
 
     def print_equation(self, normaliser):
         denormed = normaliser.denormalise_weights(self.weights, bias_scale=self.bias_scale)
