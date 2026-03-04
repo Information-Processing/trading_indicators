@@ -1,17 +1,14 @@
 """
 Linear Regression engine using source2.cpp hardware.
 
-source2.cpp accepts IEEE float32 data and converts to ap_fixed<18,13> in
-hardware (no integer quantisation in Python). Accumulators are acc_t
-(ap_fixed<64,40>).
+All three methods (SW-unoptimised, SW-optimised, HW) receive the same
+z-score normalised data (clipped to [-3, 3]). This ensures:
+  1. Values fit inside ap_fixed<18,13> without saturation.
+  2. All methods accumulate AtA/Atb in the same space, staying consistent.
 
-Key differences from pynq_full.py (which targeted source.cpp):
-  - Software LR operates on raw float data — no preprocessing
-  - Hardware path: z-score normalises floats to [-3,3] (fits ap_fixed<18,13>),
-    sends as float32, hardware converts to fixed-point internally.
-    No integer quantisation step — source2.cpp handles float-to-fixed.
-  - Hardware returns 64-bit acc_t results (2 words per element)
-  - Hardware weights are denormalised back to original units for comparison
+source2.cpp converts the normalised float32 values to ap_fixed<18,13> in
+hardware — no integer quantisation in Python. Accumulators are acc_t
+(ap_fixed<64,40>). Weights are denormalised back to original units for output.
 """
 
 from binance_ws import BinanceWSClient
@@ -121,7 +118,7 @@ class FloatNormaliser:
 
 
 # ---------------------------------------------------------
-# SOFTWARE LINEAR REGRESSION (raw floats, no quantisation)
+# SOFTWARE LINEAR REGRESSION (normalised floats)
 # ---------------------------------------------------------
 
 class UnoptimisedSoftwareLR:
@@ -146,13 +143,6 @@ class UnoptimisedSoftwareLR:
         self.b = np.vstack([self.b, new_b])
         self.params = self.solve()
 
-    def print_equation(self):
-        p = self.params.flatten()
-        parts = [f"{p[0]:.6g}*{self.column_headers[0]}"]
-        for i in range(1, self.num_params - 1):
-            parts.append(f"{p[i]:.6g}*{self.column_headers[i]}")
-        print(" + ".join(parts) + f" + {p[-1]:.6g}")
-
 
 class OptimisedSoftwareLR:
     """Streaming LR that only maintains AtA and Atb accumulators."""
@@ -174,13 +164,6 @@ class OptimisedSoftwareLR:
 
     def recalculate_params(self):
         self.params = np.linalg.pinv(self.ata) @ self.atb
-
-    def print_equation(self):
-        p = self.params.flatten()
-        parts = [f"{p[0]:.6g}*{self.column_headers[0]}"]
-        for i in range(1, self.num_params - 1):
-            parts.append(f"{p[i]:.6g}*{self.column_headers[i]}")
-        print(" + ".join(parts) + f" + {p[-1]:.6g}")
 
 
 # ---------------------------------------------------------
@@ -216,14 +199,13 @@ class HardwareLR:
     ADDR_ATB_BASE    = 0x080   # D   × acc_t (64-bit, 2 words each)
     ADDR_ATA_BASE    = 0x800   # D*D × acc_t (64-bit, 2 words each)
 
-    def __init__(self, ip, column_headers, num_raw_features,
+    def __init__(self, ip, column_headers,
                  max_samples=32768, addr_atb=None, addr_ata=None):
         self.ip = ip
         self.column_headers = column_headers
         self.num_params = len(column_headers)
         self.weights = np.zeros((self.D, 1))
         self.max_samples = max_samples
-        self.normaliser = FloatNormaliser(num_raw_features)
 
         if addr_atb is not None:
             self.ADDR_ATB_BASE = addr_atb
@@ -297,15 +279,12 @@ class HardwareLR:
 
     # ── public API ──
 
-    def stream_chunk(self, samples_float):
+    def stream_chunk(self, samples_norm):
         """
-        Accepts raw float samples with shape (N, 13).
+        Accepts pre-normalised float samples with shape (N, 13).
         Last column is the target; first 12 are features.
-        Data is z-score normalised to fit ap_fixed<18,13> range,
-        then a bias column of 1.0 is appended.
+        A bias column of 1.0 is appended automatically.
         """
-        samples_norm = self.normaliser.normalise(samples_float)
-
         test_y = samples_norm[:, -1].astype(np.float32)
         test_x = np.concatenate([
             samples_norm[:, :-1].astype(np.float32),
@@ -319,54 +298,63 @@ class HardwareLR:
 
         self.weights = np.linalg.pinv(self.ata) @ self.atb
 
-    def print_equation(self):
-        denormed = self.normaliser.denormalise_weights(self.weights)
-        p = denormed.flatten()
-        parts = [f"{p[0]:.6g}*{self.column_headers[0]}"]
-        for i in range(1, len(p) - 1):
-            parts.append(f"{p[i]:.6g}*{self.column_headers[i]}")
-        print(" + ".join(parts) + f" + {p[-1]:.6g}")
-
 
 # ---------------------------------------------------------
 # ORCHESTRATION
 # ---------------------------------------------------------
 
 class LinearRegressionEngine:
-    """Runs all three LR variants on the same raw float data."""
+    """
+    Runs all three LR variants on the same normalised data.
+
+    Raw floats are z-score normalised once, then fed identically to
+    SW-unoptimised, SW-optimised, and HW. All three accumulate in the
+    same normalised space, so their AtA/Atb stay consistent even as
+    the normaliser statistics evolve. Weights are denormalised back
+    to original units when printed.
+    """
 
     def __init__(self, ip):
         feat_names = list(FEATURE_RANGES.keys())[:-1]
-        column_headers = feat_names + ["BIAS"]
-        num_raw_features = len(FEATURE_RANGES)
+        self.column_headers = feat_names + ["BIAS"]
+        self.normaliser = FloatNormaliser(len(FEATURE_RANGES))
 
-        self.unoptimised_sw_lr = UnoptimisedSoftwareLR(column_headers)
-        self.optimised_sw_lr = OptimisedSoftwareLR(column_headers)
-        self.hardware_lr = HardwareLR(ip, column_headers, num_raw_features)
+        self.unoptimised_sw_lr = UnoptimisedSoftwareLR(self.column_headers)
+        self.optimised_sw_lr = OptimisedSoftwareLR(self.column_headers)
+        self.hardware_lr = HardwareLR(ip, self.column_headers)
 
     def test_all_lr(self, ret_dict):
         samples_float = bundle_dict_to_numpy(ret_dict)
+        samples_norm = self.normaliser.normalise(samples_float)
 
         t1 = time.time()
-        self.unoptimised_sw_lr.stream_chunk(samples_float)
+        self.unoptimised_sw_lr.stream_chunk(samples_norm)
         t2 = time.time()
-        self.optimised_sw_lr.stream_chunk_optimised(samples_float)
+        self.optimised_sw_lr.stream_chunk_optimised(samples_norm)
         t3 = time.time()
-        self.hardware_lr.stream_chunk(samples_float)
+        self.hardware_lr.stream_chunk(samples_norm)
         t4 = time.time()
 
         print(
-            f"Samples: {len(samples_float)} | "
+            f"Samples: {len(samples_norm)} | "
             f"SW Unopt: {t2-t1:.4f}s | SW Opt: {t3-t2:.4f}s | HW: {t4-t3:.4f}s"
         )
 
+    def _print_denormed(self, weights_norm):
+        denormed = self.normaliser.denormalise_weights(weights_norm)
+        p = denormed.flatten()
+        parts = [f"{p[0]:.6g}*{self.column_headers[0]}"]
+        for i in range(1, len(p) - 1):
+            parts.append(f"{p[i]:.6g}*{self.column_headers[i]}")
+        print(" + ".join(parts) + f" + {p[-1]:.6g}")
+
     def print_all_equations(self):
         print("\n[Optimised SW]")
-        self.optimised_sw_lr.print_equation()
+        self._print_denormed(self.optimised_sw_lr.params)
         print("\n[UNOPTIMISED SW]")
-        self.unoptimised_sw_lr.print_equation()
+        self._print_denormed(self.unoptimised_sw_lr.params)
         print("\n[HARDWARE FPGA]")
-        self.hardware_lr.print_equation()
+        self._print_denormed(self.hardware_lr.weights)
 
 
 class Engine:
