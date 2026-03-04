@@ -1,3 +1,6 @@
+import numpy as np
+from pynq import allocate
+import time
 
 class UnoptimisedSoftwareLR:
     def __init__(self, collumn_headers):
@@ -5,7 +8,8 @@ class UnoptimisedSoftwareLR:
         self.num_params = len(self.collumn_headers)
         self.a = np.empty((0, self.num_params))
         self.b = np.empty((0, 1))
-        self.params = None
+        self.params = np.array([])
+
     def solve(self):
         #solve function for doing (ATA)^-1 * (ATB)
         ata = self.a.T @ self.a
@@ -39,7 +43,7 @@ class OptimisedSoftwareLR:
         
         self.ata = np.zeros((self.num_params,self.num_params))
         self.atb = np.zeros((self.num_params,1))
-        self.params = None
+        self.params = np.array([])
         self.ata_inv = None
         
 
