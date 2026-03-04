@@ -131,15 +131,15 @@ class HardwareLR:
     # Safe samples per kernel call ≈ 32 000
     HW_BATCH_SIZE = 4096
 
-    # ── AXI-Lite register map ──
-    # IMPORTANT: verify these against your Vitis HLS synthesis report
-    # for source2.cpp. Scalar ports are typically stable; array base
-    # addresses may shift when element widths change (18-bit → 64-bit).
+    # ── AXI-Lite register map (source2.cpp with acc_t outputs) ──
+    # Vitis HLS aligns arrays to the next power-of-2 of their byte size:
+    #   Atb: 13×8 = 104 bytes  → aligned to 128  → base 0x080
+    #   AtA: 169×8 = 1352 bytes → aligned to 2048 → base 0x800
     ADDR_AP_CTRL     = 0x000
     ADDR_MEM_IN_DATA = 0x010
     ADDR_NUM_SAMPLES = 0x01c
-    ADDR_ATB_BASE    = 0x040   # D   × 64-bit (2 words each)
-    ADDR_ATA_BASE    = 0x400   # D*D × 64-bit (2 words each)
+    ADDR_ATB_BASE    = 0x080   # D   × acc_t (64-bit, 2 words each)
+    ADDR_ATA_BASE    = 0x800   # D*D × acc_t (64-bit, 2 words each)
 
     def __init__(self, ip, column_headers, max_samples=32768,
                  addr_atb=None, addr_ata=None):
@@ -218,13 +218,12 @@ class HardwareLR:
 
         if not self._debug_done:
             self._debug_done = True
-            print(f"[HW DEBUG] Using ATB base=0x{self.ADDR_ATB_BASE:04X}, "
+            print(f"[HW DEBUG] ATB base=0x{self.ADDR_ATB_BASE:04X}, "
                   f"ATA base=0x{self.ADDR_ATA_BASE:04X}")
             print(f"[HW DEBUG] Atb: {hw_atb.flatten()}")
             print(f"[HW DEBUG] AtA diagonal: {np.diag(hw_ata)}")
             print(f"[HW DEBUG] AtA non-zero: {np.count_nonzero(hw_ata)} / {hw_ata.size}")
             print(f"[HW DEBUG] Atb non-zero: {np.count_nonzero(hw_atb)} / {hw_atb.size}")
-            self.scan_nonzero_registers(start=0x020, end=0xC00)
 
         self.ata += hw_ata
         self.atb += hw_atb
