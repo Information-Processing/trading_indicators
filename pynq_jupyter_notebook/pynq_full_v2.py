@@ -1,15 +1,17 @@
 """
 Linear Regression engine using source2.cpp hardware.
 
-source2.cpp accepts IEEE float32 data directly and performs float-to-fixed-point
-(ap_fixed<18,13>) conversion in hardware. No software-side normalization or
-quantization is needed. Accumulator outputs are acc_t (ap_fixed<64,40>).
+source2.cpp accepts IEEE float32 data and converts to ap_fixed<18,13> in
+hardware (no integer quantisation in Python). Accumulators are acc_t
+(ap_fixed<64,40>).
 
 Key differences from pynq_full.py (which targeted source.cpp):
-  - No FeatureNormaliser — raw float data sent directly to SW and HW
-  - Hardware receives float32 bit patterns via DMA, converts internally
+  - Software LR operates on raw float data — no preprocessing
+  - Hardware path: z-score normalises floats to [-3,3] (fits ap_fixed<18,13>),
+    sends as float32, hardware converts to fixed-point internally.
+    No integer quantisation step — source2.cpp handles float-to-fixed.
   - Hardware returns 64-bit acc_t results (2 words per element)
-  - Weights are already in original units — no denormalization step
+  - Hardware weights are denormalised back to original units for comparison
 """
 
 from binance_ws import BinanceWSClient
