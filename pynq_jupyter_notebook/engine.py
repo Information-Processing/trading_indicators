@@ -4,6 +4,7 @@ import time
 from collections import deque, defaultdict
 import numpy as np
 import threading
+from collections import deque
 
 
 class Engine:
@@ -14,6 +15,7 @@ class Engine:
         self.ce = CalculationEngine()
         self.netvoldelta = deque(maxlen = 10)
         self.ret_dict = defaultdict(list)
+        self.price_queue = deque()
         
     def get_data(self):
         trades = self.binance_ws.trades
@@ -21,6 +23,7 @@ class Engine:
         last_price = self.binance_ws.last_price
         depth_count = self.binance_ws.depth_count
         trade_count = self.binance_ws.trade_count
+        n = 0
         while(1):
             now = time.time()
             
@@ -84,7 +87,16 @@ class Engine:
             self.ret_dict["total_brought"].append(total_brought)
             self.ret_dict["stlt"].append(sum(stlt))
             self.ret_dict["stv"].append(sum(stv))
+            
+            if n  > 5:
+                self.price_queue.append(last_price)
+
+            self.ret_dict["last_price"].append(self.price_queue.popleft())
+
+
             print(self.ret_dict)
+
+            n+=1
 
 
 if __name__ == '__main__':
