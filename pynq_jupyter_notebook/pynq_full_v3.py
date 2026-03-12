@@ -12,7 +12,7 @@ hardware — no integer quantisation in Python. Accumulators are acc_t
 """
 
 from binance_ws import BinanceWSClient
-from calc_engine import CalculationEngine
+from calc_engine import CalculationEngineV4
 from pynq import allocate
 import time
 from collections import defaultdict
@@ -21,22 +21,23 @@ import threading
 from collections import deque
 
 
-FEATURE_RANGES = {
-    "imballance":         0,
-    "asks_total":         0,
-    "bids_total":         0,
-    "ask_dropoff":        0,
-    "bid_dropoff":        0,
-    "ask_spread":         0,
-    "vwma_10":            0,
-    "vwma_5":             0,
-    "total_sell":         0,
-    "total_brought":      0,
-    "stv":                0,
-    "trade_arrival_rate": 0,  # 12th feature
-    "last_price":         0,  # Target (Y)
-}
+API_BASE_URL = "http://13.60.162.169:5000"
 
+FEATURE_RANGES = {
+    "spread_bps":           0,
+    "wmid_deviation":       0,
+    "book_imbalance":       0,
+    "book_slope_ratio":     0,
+    "depth_ratio":          0,
+    "vol_delta_ratio":      0,
+    "trade_intensity_z":    0,
+    "large_trade_ratio":    0,
+    "realized_volatility":  0,
+    "momentum_10s":         0,
+    "vwma_deviation_30s":   0,
+    "cum_volume_delta":     0,
+    "last_price":           0
+}
 
 def bundle_dict_to_numpy(data_dict):
     """Convert ret_dict into a 2D float64 array ordered by FEATURE_RANGES."""
@@ -324,7 +325,9 @@ class LinearRegressionEngine:
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(self.column_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(self.column_headers)
         self.hardware_lr = HardwareLR(ip, self.column_headers, max_samples=32768)
-
+        
+    def _get_denormed(self, weights_norm):
+        return self.normaliser.denormalise_weights(weights_norm).flatten().tolist()
     def test_all_lr(self, ret_dict):
         samples_float = bundle_dict_to_numpy(ret_dict)
         samples_norm = self.normaliser.normalise(samples_float)
@@ -357,8 +360,22 @@ class LinearRegressionEngine:
         self._print_denormed(self.unoptimised_sw_lr.params)
         print("\n[HARDWARE FPGA]")
         self._print_denormed(self.hardware_lr.weights)
-
-
+        
+    def post_weights(self, asset: str):
+        """POST denormalised weights + feature names to the API server."""
+        weights = self._get_denormed(self.optimised_sw_lr.params)
+        features = self.column_headers  # 12 features + "BIAS"
+        payload = {
+            "weights": weights,
+            "features": features,
+            "asset": asset,
+        }
+        try:
+            resp = requests.post(f"{API_BASE_URL}/matrix", json=payload, timeout=5)
+            resp.raise_for_status()
+            print(f"[API] POST /matrix OK — {resp.status_code}")
+        except requests.RequestException as e:
+            print(f"[API] POST /matrix FAILED — {e}")
 POLLING_PERIOD = 0.2
 WARMUP_PERIOD = 5
 WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD 
@@ -366,45 +383,61 @@ class Engine:
     def __init__(self, ip):
         self.binance_ws = BinanceWSClient()
         self.binance_ws.run_ws()
-        self.ce = CalculationEngine()
+        self.ce = CalculationEngineV4()
         self.ret_dict = defaultdict(list)
         self.lr_engine = LinearRegressionEngine(ip)
         self.last_price_queue = deque()
 
     def get_data(self):
         iterations = 0
+        trades = self.binance_ws.trades
+        last_price = self.binance_ws.last_price
 
-        while True:
+        while(1):
             now = time.time()
             trades_snapshot = list(self.binance_ws.trades)
+            trades_10 = self.binance_ws.get_trades_since(now - 11.0)
+            trades_30 = self.binance_ws.get_trades_since(now - 31.0)
             shortterm_trades = self.binance_ws.get_trades_since(now - 1)
-
-            vwma_10 = self.ce.vwma_calculate(trades_snapshot, now, 11.0)
-            vwma_5 = self.ce.vwma_calculate(trades_snapshot, now, 6.0)
-            total_sell = self.ce.sell_total(shortterm_trades, now, 1)
-            total_brought = self.ce.bought_total(shortterm_trades, now, 1)
-            stv = [t.volume for t in shortterm_trades]
 
             order_book = self.binance_ws.order_book
             asks = order_book.get("asks", [])
             bids = order_book.get("bids", [])
 
             if not asks or not bids:
-                time.sleep(POLLING_PERIOD)
+                time.sleep(1)
                 continue
 
-            self.ret_dict["imballance"].append(0)
-            self.ret_dict["asks_total"].append(self.ce.price_depth(asks))
-            self.ret_dict["bids_total"].append(self.ce.price_depth(bids))
-            self.ret_dict["ask_dropoff"].append(self.ce.dropoff(asks, 5))
-            self.ret_dict["bid_dropoff"].append(self.ce.dropoff(bids, 5))
-            self.ret_dict["ask_spread"].append(self.ce.dropoff(asks, 3))
-            self.ret_dict["vwma_10"].append(vwma_10)
-            self.ret_dict["vwma_5"].append(vwma_5)
-            self.ret_dict["total_sell"].append(total_sell)
-            self.ret_dict["total_brought"].append(total_brought)
-            self.ret_dict["stv"].append(sum(stv))
-            self.ret_dict["trade_arrival_rate"].append(len(shortterm_trades))
+            best_ask = asks[0]   # (price, qty)
+            best_bid = bids[0]   # (price, qty)
+            last_price = self.binance_ws.last_price
+
+            # --- 12 new features ---
+            spread      = self.ce.spread_bps(best_ask[0], best_bid[0])
+            wmid_dev    = self.ce.weighted_mid_deviation(best_ask, best_bid)
+            imbalance   = self.ce.book_imbalance(asks, bids, levels=10)
+            slope_ratio = self.ce.book_slope_ratio(asks, bids, levels=5)
+            depth_r     = self.ce.depth_ratio(asks, bids)
+            vol_delta   = self.ce.volume_delta_ratio(trades_snapshot, now, 5.0)
+            intensity   = self.ce.trade_intensity_zscore(len(shortterm_trades))
+            large_ratio = self.ce.large_trade_ratio(trades_snapshot, now, 5.0, threshold_qty=0.1)
+            volatility  = self.ce.realized_volatility(trades_10, now, 10.0)
+            mom         = self.ce.momentum(trades_10, now, 10.0)
+            vwma_dev    = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
+            cum_vdelta  = self.ce.cumulative_volume_delta(vol_delta)
+
+            self.ret_dict["spread_bps"].append(spread)
+            self.ret_dict["wmid_deviation"].append(wmid_dev)
+            self.ret_dict["book_imbalance"].append(imbalance)
+            self.ret_dict["book_slope_ratio"].append(slope_ratio)
+            self.ret_dict["depth_ratio"].append(depth_r)
+            self.ret_dict["vol_delta_ratio"].append(vol_delta)
+            self.ret_dict["trade_intensity_z"].append(intensity)
+            self.ret_dict["large_trade_ratio"].append(large_ratio)
+            self.ret_dict["realized_volatility"].append(volatility)
+            self.ret_dict["momentum_10s"].append(mom)
+            self.ret_dict["vwma_deviation_30s"].append(vwma_dev)
+            self.ret_dict["cum_volume_delta"].append(cum_vdelta)
             
 
             if iterations > WARMUP_ITERATIONS:
@@ -422,14 +455,15 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(2)
-            if len(eng.ret_dict["trade_arrival_rate"]) >= 15:
+            if len(eng.ret_dict["cum_volume_delta"]) >= 50:
                 target_samples = len(eng.ret_dict["last_price"])
                 data_copy = {k : list(v[:target_samples]) for k, v in eng.ret_dict.items()}
 
                 eng.lr_engine.test_all_lr(data_copy)
                 eng.lr_engine.print_all_equations()
+                eng.lr_engine.post_weights("BTC")  # ← upload to API
                 eng.ret_dict.clear()
             else:
-                print(f"Warming up... {len(eng.ret_dict['trade_arrival_rate'])}/15")
+                print(f"Warming up... {len(eng.ret_dict['cum_volume_delta'])}/15")
     except KeyboardInterrupt:
         print("Shutting down...")
