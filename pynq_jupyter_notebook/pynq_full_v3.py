@@ -18,6 +18,8 @@ import time
 from collections import defaultdict
 import numpy as np
 import threading
+from collections import deque
+
 
 FEATURE_RANGES = {
     "imballance":         0,
@@ -357,6 +359,9 @@ class LinearRegressionEngine:
         self._print_denormed(self.hardware_lr.weights)
 
 
+POLLING_PERIOD = 0.2
+WARMUP_PERIOD = 5
+WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD 
 class Engine:
     def __init__(self, ip):
         self.binance_ws = BinanceWSClient()
@@ -364,8 +369,11 @@ class Engine:
         self.ce = CalculationEngine()
         self.ret_dict = defaultdict(list)
         self.lr_engine = LinearRegressionEngine(ip)
+        self.last_price_queue = deque()
 
     def get_data(self):
+        iterations = 0
+
         while True:
             now = time.time()
             trades_snapshot = list(self.binance_ws.trades)
@@ -382,7 +390,7 @@ class Engine:
             bids = order_book.get("bids", [])
 
             if not asks or not bids:
-                time.sleep(0.3)
+                time.sleep(POLLING_PERIOD)
                 continue
 
             self.ret_dict["imballance"].append(0)
@@ -399,7 +407,11 @@ class Engine:
             self.ret_dict["trade_arrival_rate"].append(len(shortterm_trades))
             self.ret_dict["last_price"].append(self.binance_ws.last_price)
 
-            time.sleep(0.2)
+            if iterations > WARMUP_ITERATIONS:
+                self.last_price_queue.append(self.binance_ws.last_price)
+            iterations += 1
+
+            time.sleep(POLLING_PERIOD)
 
 
 if __name__ == "__main__":
@@ -410,7 +422,9 @@ if __name__ == "__main__":
         while True:
             time.sleep(2)
             if len(eng.ret_dict["trade_arrival_rate"]) >= 15:
-                data_copy = {k: list(v) for k, v in eng.ret_dict.items()}
+                target_samples = len(eng.ret_dict["last_price"])
+                data_copy = {k : list(v[:target_samples]) for k, v in eng.ret_dict.items()}
+
                 eng.lr_engine.test_all_lr(data_copy)
                 eng.lr_engine.print_all_equations()
                 eng.ret_dict.clear()
