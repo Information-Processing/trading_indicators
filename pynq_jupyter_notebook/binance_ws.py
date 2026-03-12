@@ -15,9 +15,12 @@ class Trade:
     is_buyer_maker: bool
 
 class BinanceWSClient:
-    URL = "wss://stream.binance.com:9443/stream?streams=btcusdt@trade/btcusdt@depth20@100ms"
+    DEFAULT_URL = "wss://stream.binance.com:9443/stream?streams=btcusdt@trade/btcusdt@depth20@100ms"
 
-    def __init__(self):
+    def __init__(self, url=None):
+        self.url = url or self.DEFAULT_URL
+        self._url_changed = threading.Event()
+        self.ws = None
         self.trades = deque(maxlen=MAX_TRADE_HISTORY)
         self.order_book = {"bids": [], "asks": []}
         self.last_price = 0.0
@@ -37,18 +40,28 @@ class BinanceWSClient:
     def on_close(self, ws, code, reason):
         print(f'Ws closed (code={code}, reason={reason})')
 
+    def update_url(self, target):
+        self.url = f"wss://stream.binance.com:9443/stream?streams={target}usdt@trade/{target}usdt@depth20@100ms"
+        self._url_changed.set()
+        if self.ws:
+            self.ws.close()
+
     def _run_forever_with_reconnect(self):
         while True:
             self.ws = websocket.WebSocketApp(
-                self.URL,
+                self.url,
                 on_open=self.on_open,
                 on_message=self.on_message,
                 on_error=self.on_error,
                 on_close=self.on_close
             )
             self.ws.run_forever(ping_interval=20, ping_timeout=10)
-            print("WebSocket disconnected, reconnecting in 3s...")
-            time.sleep(3)
+            if self._url_changed.is_set():
+                self._url_changed.clear()
+                print(f"URL changed, reconnecting immediately...")
+            else:
+                print("WebSocket disconnected, reconnecting in 3s...")
+                time.sleep(3)
 
     def run_ws(self):
         self.t = threading.Thread(target=self._run_forever_with_reconnect, daemon=True)

@@ -88,7 +88,7 @@ class Engine:
             self.ret_dict["stlt"].append(sum(stlt))
             self.ret_dict["stv"].append(sum(stv))
             
-            if n  > 5:
+            if n > 5:
                 self.price_queue.append(last_price)
 
             self.ret_dict["last_price"].append(self.price_queue.popleft())
