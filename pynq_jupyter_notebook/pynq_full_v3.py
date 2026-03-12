@@ -405,10 +405,11 @@ class Engine:
             self.ret_dict["total_brought"].append(total_brought)
             self.ret_dict["stv"].append(sum(stv))
             self.ret_dict["trade_arrival_rate"].append(len(shortterm_trades))
-            self.ret_dict["last_price"].append(self.binance_ws.last_price)
+            
 
             if iterations > WARMUP_ITERATIONS:
                 self.last_price_queue.append(self.binance_ws.last_price)
+                self.ret_dict["last_price"].append(self.last_price_queue.popleft())
             iterations += 1
 
             time.sleep(POLLING_PERIOD)
