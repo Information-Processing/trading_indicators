@@ -525,6 +525,8 @@ class TestingEngine:
             
         
         print('='*100)
+        print(f"num iterations: {self.a_price_incorrect_predictions + self.a_price_correct_predictions}")
+        print()
         pred = float(np.dot(weights[:-1], np.array(list(indicators.values()))) + weights[-1])
         print(f"prediction: {pred}, actual price: {self.binance_ws.last_price}")
         print()
