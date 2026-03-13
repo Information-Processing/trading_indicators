@@ -465,110 +465,155 @@ class TestingEngine:
         self.binance_ws = BinanceWSClient()
         self.binance_ws.run_ws()
         self.ce = CalculationEngineV2()
-        self.last_last_price = 0
-        self.last_prediction = 0
+        # State for aligned backtesting
+        self.prev_price = None
+        self.prev_model_signal = None
+        self.prev_baseline_signal = None
 
-        self.p_price_correct_predictions = 0
-        self.p_price_incorrect_predictions = 0
-        self.p_price_accuracy = 0
+        self.model_correct_predictions = 0
+        self.model_incorrect_predictions = 0
+        self.baseline_correct_predictions = 0
+        self.baseline_incorrect_predictions = 0
 
-        self.a_price_correct_predictions = 0
-        self.a_price_incorrect_predictions = 0
-        self.a_price_accuracy = 0
+        self.p_price_accuracy = 0.0  # model vs actual
+        self.a_price_accuracy = 0.0  # baseline vs actual
 
-        self.fake_money = 1000
+        self.fake_money = 1000.0
+
+    def _build_feature_vector(self, now, order_book, trades_snapshot, trades_10, trades_30, shortterm_trades, last_price):
+        asks = order_book.get("asks", [])
+        bids = order_book.get("bids", [])
+
+        if not asks or not bids or last_price is None:
+            return None
+
+        best_ask = asks[0]   # (price, qty)
+        best_bid = bids[0]   # (price, qty)
+
+        spread = self.ce.spread_bps(best_ask[0], best_bid[0])
+        wmid_dev = self.ce.weighted_mid_deviation(best_ask, best_bid)
+        imbalance = self.ce.book_imbalance(asks, bids, levels=10)
+        slope_ratio = self.ce.book_slope_ratio(asks, bids, levels=5)
+        depth_r = self.ce.depth_ratio(asks, bids)
+        vol_delta = self.ce.volume_delta_ratio(trades_snapshot, now, 5.0)
+        intensity = self.ce.trade_intensity_zscore(len(shortterm_trades))
+        large_ratio = self.ce.large_trade_ratio(trades_snapshot, now, 5.0, threshold_qty=0.1)
+        volatility = self.ce.realized_volatility(trades_10, now, 10.0)
+        mom = self.ce.momentum(trades_10, now, 10.0)
+        vwma_dev = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
+        cum_vdelta = self.ce.cumulative_volume_delta(vol_delta)
+
+        # Match training order: spread_bps, wmid_deviation, book_imbalance, book_slope_ratio,
+        # depth_ratio, vol_delta_ratio, trade_intensity_z, large_trade_ratio,
+        # realized_volatility, momentum_10s, vwma_deviation_30s, cum_volume_delta
+        return np.array([
+            spread,
+            wmid_dev,
+            imbalance,
+            slope_ratio,
+            depth_r,
+            vol_delta,
+            intensity,
+            large_ratio,
+            volatility,
+            mom,
+            vwma_dev,
+            cum_vdelta,
+        ], dtype=np.float64)
+
+    @staticmethod
+    def _signal_from_prediction(prediction_price, current_price):
+        return "BUY" if prediction_price > current_price else "SELL"
+
+    @staticmethod
+    def _signal_from_momentum(current_price, previous_price):
+        if previous_price is None:
+            return "BUY"
+        return "BUY" if current_price > previous_price else "SELL"
 
     def use_weights(self, weights):
-        trades = self.binance_ws.trades
-        last_price = self.binance_ws.last_price
-
         now = time.time()
         trades_snapshot = list(self.binance_ws.trades)
         trades_10 = self.binance_ws.get_trades_since(now - 11.0)
         trades_30 = self.binance_ws.get_trades_since(now - 31.0)
-        shortterm_trades = self.binance_ws.get_trades_since(now - 1)
+        shortterm_trades = self.binance_ws.get_trades_since(now - 1.0)
 
         order_book = self.binance_ws.order_book
-        asks = order_book.get("asks", [])
-        bids = order_book.get("bids", [])
-
-        best_ask = asks[0]   # (price, qty)
-        best_bid = bids[0]   # (price, qty)
         last_price = self.binance_ws.last_price
 
-        indicators = {}
-        # --- 12 new features ---
-        indicators["spread"] = self.ce.spread_bps(best_ask[0], best_bid[0])
-        indicators["wmid_dev"] = self.ce.weighted_mid_deviation(best_ask, best_bid)
-        indicators["imbalance"] = self.ce.book_imbalance(asks, bids, levels=10)
-        indicators["slope_ratio"] = self.ce.book_slope_ratio(asks, bids, levels=5)
-        indicators["depth_r"] = self.ce.depth_ratio(asks, bids)
-        indicators["vol_delta"] = self.ce.volume_delta_ratio(trades_snapshot, now, 5.0)
-        indicators["intensity"] = self.ce.trade_intensity_zscore(len(shortterm_trades))
-        indicators["large_ratio"] = self.ce.large_trade_ratio(trades_snapshot, now, 5.0, threshold_qty=0.1)
-        indicators["volatility"] = self.ce.realized_volatility(trades_10, now, 10.0)
-        indicators["mom"] = self.ce.momentum(trades_10, now, 10.0)
-        indicators["vwma_dev"] = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
-        indicators["cum_vdelta"] = self.ce.cumulative_volume_delta(indicators["vol_delta"])
-            
-        
-        print('='*100)
-        pred = float(np.dot(weights[:-1], np.array(list(indicators.values()))) + weights[-1])
-        print(f"num iterations: {self.a_price_incorrect_predictions + self.a_price_correct_predictions}")
-        print()
-        print(f"prediction: {pred}, actual price: {self.binance_ws.last_price}")
-        print()
-        prediction = ""
+        features = self._build_feature_vector(
+            now,
+            order_book,
+            trades_snapshot,
+            trades_10,
+            trades_30,
+            shortterm_trades,
+            last_price,
+        )
 
-        if self.last_prediction - pred < 0:
-            p_price_prediction = "BUY"
-        else:
-            p_price_prediction = "SELL"
+        if features is None:
+            print("TestingEngine: insufficient market data, skipping evaluation step.")
+            return
 
-        if self.last_last_price - pred < 0:
-            a_price_prediction = "BUY"
-        else:
-            a_price_prediction = "SELL"
+        weights_arr = np.asarray(weights, dtype=np.float64)
+        pred = float(np.dot(weights_arr[:-1], features) + weights_arr[-1])
 
-        if self.last_last_price - self.binance_ws.last_price < 0:
-            actual = "BUY"
-        else:
-            actual = "SELL"
+        # Evaluate previous step's prediction on the realised move to now
+        actual_signal = "N/A"
+        if self.prev_price is not None and self.prev_model_signal is not None:
+            price_moved_up = last_price > self.prev_price
+            actual_signal = "BUY" if price_moved_up else "SELL"
 
-
-        print(f"p-p signal: {p_price_prediction}, a-p signal: {a_price_prediction}, actual signal: {actual}")
-        if p_price_prediction == actual:
-            self.p_price_correct_predictions += 1
-        else:
-            self.p_price_incorrect_predictions += 1
-
-        if a_price_prediction == actual:
-            self.a_price_correct_predictions += 1
-        else:
-            self.a_price_incorrect_predictions += 1
-
-        self.p_price_accuracy = self.p_price_correct_predictions / (self.p_price_correct_predictions + self.p_price_incorrect_predictions)
-        self.a_price_accuracy = self.a_price_correct_predictions / (self.a_price_correct_predictions + self.a_price_incorrect_predictions)
-      
-
-        if self.last_last_price != 0:
-            last_price_ratio = self.binance_ws.last_price / self.last_last_price
-            if p_price_prediction == "BUY":
-                self.fake_money = self.fake_money * last_price_ratio
+            if self.prev_model_signal == actual_signal:
+                self.model_correct_predictions += 1
             else:
-                self.fake_money = self.fake_money *(2 - last_price_ratio)
+                self.model_incorrect_predictions += 1
 
+            if self.prev_baseline_signal is not None:
+                if self.prev_baseline_signal == actual_signal:
+                    self.baseline_correct_predictions += 1
+                else:
+                    self.baseline_incorrect_predictions += 1
 
+            price_ratio = last_price / self.prev_price if self.prev_price != 0 else 1.0
+            if self.prev_model_signal == "BUY":
+                self.fake_money *= price_ratio
+            else:
+                self.fake_money *= (2.0 - price_ratio)
+
+        # Generate new signals for the next interval
+        model_signal = self._signal_from_prediction(pred, last_price)
+        baseline_signal = self._signal_from_momentum(last_price, self.prev_price)
+
+        self.prev_price = last_price
+        self.prev_model_signal = model_signal
+        self.prev_baseline_signal = baseline_signal
+
+        model_total = self.model_correct_predictions + self.model_incorrect_predictions
+        baseline_total = self.baseline_correct_predictions + self.baseline_incorrect_predictions
+
+        self.p_price_accuracy = (
+            self.model_correct_predictions / model_total if model_total else 0.0
+        )
+        self.a_price_accuracy = (
+            self.baseline_correct_predictions / baseline_total if baseline_total else 0.0
+        )
+
+        print("=" * 100)
+        print(f"num iterations: {model_total}")
         print()
-        print(f"p-p accuracy: {self.p_price_accuracy*100}%")
+        print(f"prediction: {pred}, actual price: {last_price}")
         print()
-        print(f"a-p accuracy: {self.a_price_accuracy*100}%")
+        print(
+            f"p-p signal: {model_signal}, a-p signal: {baseline_signal}, actual signal: {actual_signal}"
+        )
         print()
-        
+        print(f"p-p accuracy: {self.p_price_accuracy * 100}%")
+        print()
+        print(f"a-p accuracy: {self.a_price_accuracy * 100}%")
+        print()
         print(f"BALANCE: {self.fake_money}")
-        print('='*100)
-        self.last_last_price = self.binance_ws.last_price
-        self.last_prediction = pred
+        print("=" * 100)
 
 if __name__ == "__main__":
     ip = 0
@@ -583,7 +628,7 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(2)
-            if len(eng.ret_dict["cum_volume_delta"]) >= 50:
+            if len(eng.ret_dict["cum_volume_delta"]) >= 15:
                 target_samples = len(eng.ret_dict["last_price"])
                 data_copy = {k : list(v[:target_samples]) for k, v in eng.ret_dict.items()}
 
