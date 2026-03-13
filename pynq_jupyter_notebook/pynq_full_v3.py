@@ -381,6 +381,10 @@ class LinearRegressionEngine:
             print(f"[API] POST /matrix OK — {resp.status_code}")
         except requests.RequestException as e:
             print(f"[API] POST /matrix FAILED — {e}")
+
+    def get_weights(self):
+        return self._get_denormed(self.optimised_sw_lr.params)
+
 POLLING_PERIOD = 0.2
 WARMUP_PERIOD = 5
 WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD 
@@ -455,11 +459,72 @@ class Engine:
             time.sleep(POLLING_PERIOD)
 
 
+
+class TestingEngine:
+    def __init__(self):
+        self.binance_ws = BinanceWSClient()
+        self.binance_ws.run_ws()
+        self.ce = CalculationEngineV2()
+        self.last_last_price = 0
+        self.last_prediction = 0
+
+    def use_weights(self, weights):
+        trades = self.binance_ws.trades
+        last_price = self.binance_ws.last_price
+
+        now = time.time()
+        trades_snapshot = list(self.binance_ws.trades)
+        trades_10 = self.binance_ws.get_trades_since(now - 11.0)
+        trades_30 = self.binance_ws.get_trades_since(now - 31.0)
+        shortterm_trades = self.binance_ws.get_trades_since(now - 1)
+
+        order_book = self.binance_ws.order_book
+        asks = order_book.get("asks", [])
+        bids = order_book.get("bids", [])
+
+        best_ask = asks[0]   # (price, qty)
+        best_bid = bids[0]   # (price, qty)
+        last_price = self.binance_ws.last_price
+
+        indicators = {}
+        # --- 12 new features ---
+        indicators["spread"] = self.ce.spread_bps(best_ask[0], best_bid[0])
+        indicators["wmid_dev"] = self.ce.weighted_mid_deviation(best_ask, best_bid)
+        indicators["imbalance"] = self.ce.book_imbalance(asks, bids, levels=10)
+        indicators["slope_ratio"] = self.ce.book_slope_ratio(asks, bids, levels=5)
+        indicators["depth_r"] = self.ce.depth_ratio(asks, bids)
+        indicators["vol_delta"] = self.ce.volume_delta_ratio(trades_snapshot, now, 5.0)
+        indicators["intensity"] = self.ce.trade_intensity_zscore(len(shortterm_trades))
+        indicators["large_ratio"] = self.ce.large_trade_ratio(trades_snapshot, now, 5.0, threshold_qty=0.1)
+        indicators["volatility"] = self.ce.realized_volatility(trades_10, now, 10.0)
+        indicators["mom"] = self.ce.momentum(trades_10, now, 10.0)
+        indicators["vwma_dev"] = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
+        indicators["cum_vdelta"] = self.ce.cumulative_volume_delta(indicators["vol_delta"])
+            
+        
+        print('='*100)
+        pred = float(np.dot(weights[:-1], np.array(list(indicators.values()))) + weights[-1])
+        print(f"prediction: {pred}, actual price: {self.binance_ws.last_price}")
+        prediction = ""
+        if self.last_prediction - pred < 0:
+            prediction = "SELL"
+        else:
+            prediction = "BUY"
+
+        if self.last_last_price - self.binance_ws.last_price < 0:
+            actual = "SELL"
+        else:
+            actual = "BUY"
+        print(f"predicted signal: {prediction}, actual signal: {actual}")
+        print('='*100)
+        self.last_last_price = self.binance_ws.last_price
+        self.last_prediction = pred
+
 if __name__ == "__main__":
     ip = 0
     eng = Engine(ip)
     threading.Thread(target=eng.get_data, daemon=True).start()
-
+    test_binance = TestingEngine()
     try:
         while True:
             time.sleep(2)
@@ -471,6 +536,10 @@ if __name__ == "__main__":
                 eng.lr_engine.print_all_equations()
                 eng.lr_engine.post_weights("BTC")  # ← upload to API
                 eng.ret_dict.clear()
+
+                weights = eng.lr_engine.get_weights()
+                test_binance.use_weights(weights)
+
             else:
                 print(f"Warming up... {len(eng.ret_dict['cum_volume_delta'])}/15")
     except KeyboardInterrupt:
