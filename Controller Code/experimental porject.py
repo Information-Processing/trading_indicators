@@ -3,21 +3,6 @@
 # Next step (optional): refactor into modules & generate tests with RunCell
 # Quick start: pip install runcell
 
-port.reset()
-
-from pynq.lib import Wifi
-
-port = Wifi()
-
-ssid = input("Type in the SSID:")
-pwd = input("Type in the password:")
-port.connect(ssid, pwd)
-
-#ALHN-F5CE
-#kmS82HzsaF
-
-!ping google.com -c 10
-
 # ============================================================================
 # BLOCK 0: IMPORTS 
 # ============================================================================
@@ -459,119 +444,105 @@ try:
 except ModuleNotFoundError:
     raise ModuleNotFoundError("calc_engine.CalculationEngineV2 not found. Ensure calc_engine.py is in the same folder or 'Trading Indicatiors files'. Current dir: " + _cwd)
 
-_ce = CalculationEngineV2()
+from binance_ws import BinanceWSClient # edit for local imports???
 
-class _Trade:
-    __slots__ = ("price", "volume", "time", "is_buyer_maker")
-    def __init__(self, p, v, ts, m): self.price, self.volume, self.time, self.is_buyer_maker = p, v, ts, m
-
-def _trade_from_rest(t):
-    p = t.get("price") or t.get("p")
-    q = t.get("qty") or t.get("q")
-    ts = t.get("time") or t.get("T")
-    m = t.get("isBuyerMaker", t.get("m", False))
-    return _Trade(float(p), float(q), float(ts)/1000, bool(m))
-
-def _compute_features(asset):
-    """Fetch Binance depth+trades from REST, use CalculationEngineV2 to compute 12 features."""
-    sym = "BTCUSDT" if asset == "BTC" else "ETHUSDT"
-    try:
-        r_d = requests.get(f"https://api.binance.com/api/v3/depth?symbol={sym}&limit=20", timeout=5)
-        r_t = requests.get(f"https://api.binance.com/api/v3/trades?symbol={sym}&limit=500", timeout=5)
-        r_d.raise_for_status()
-        r_t.raise_for_status()
-    except Exception:
-        return None
-    asks = [(float(p), float(q)) for p, q in r_d.json().get("asks", [])]
-    bids = [(float(p), float(q)) for p, q in r_d.json().get("bids", [])]
-    if not asks or not bids:
-        return None
-    trades = [_trade_from_rest(t) for t in r_t.json()]
-    now = time.time()
-    best_ask, best_bid = asks[0], bids[0]
-    last_price = float(trades[-1].price) if trades else (best_ask[0] + best_bid[0]) / 2
-    shortterm = [t for t in trades if t.time >= now - 1]
-    vdelta = _ce.volume_delta_ratio(trades, now, 1.0)
-    f1 = _ce.spread_bps(best_ask[0], best_bid[0])
-    f2 = _ce.weighted_mid_deviation(best_ask, best_bid)
-    f3 = _ce.book_imbalance(asks, bids)
-    f4 = _ce.book_slope_ratio(asks, bids, levels=5)
-    f5 = _ce.depth_ratio(asks, bids)
-    f6 = vdelta
-    f7 = _ce.trade_intensity_zscore(len(shortterm))
-    f8 = _ce.large_trade_ratio(trades, now, 1.0)
-    f9 = _ce.realized_volatility(trades, now, 10.0)
-    f10 = _ce.momentum(trades, now, 10.0)
-    f11 = _ce.vwma_deviation(trades, now, 10.0, last_price)
-    f12 = _ce.cumulative_volume_delta(vdelta)
-    feat = [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12]
-    names = ["spread_bps","weighted_mid_dev","book_imbalance","book_slope_ratio","depth_ratio","vol_delta_ratio","trade_intensity_z","large_trade_ratio","realized_vol","momentum","vwma_deviation","cum_vol_delta"]
-    for n, v in zip(names, feat):
-        logger.info(f"[Features] {n}={v}")
-    return feat
-
-def binance_predict_price(weights, features, asset="BTC"):
-    """pred = weights[:-1] @ features + weights[-1]. Features from CalculationEngine."""
-    w = np.array(weights, dtype=np.float64)
-    if len(w) < 13:
-        return 0.0
-    f = _compute_features(asset)
-    if f is None:
-        return 0.0
-    f = np.array(f[:12], dtype=np.float64)
-    return float(np.dot(w[:-1], f) + w[-1])
-
-def get_current_price(asset):
-    """Fetch current spot price from Binance REST API."""
-    sym = "BTCUSDT" if asset == "BTC" else "ETHUSDT"
-    try:
-        r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}", timeout=5)
-        r.raise_for_status()
-        return float(r.json()["price"])
-    except Exception:
-        return 50000.0 if asset == "BTC" else 3000.0
-
-
-class WeightListener:
+class TestingEngine:
     def __init__(self):
-        self._running = False
-        self._thread = None
+        self.binance_ws = BinanceWSClient()
+        self.binance_ws.run_ws()
+        self.ce = CalculationEngineV2()
+        self.last_last_price = 0
+        self.last_prediction = 0
 
-    def _loop(self):
-        while self._running:
-            try:
-                r = requests.get(WEIGHTS_ENDPOINT, timeout=5)
-                r.raise_for_status()
-                data = r.json()
-                weights = data.get("weights", [])
-                features = data.get("features", None)
-                asset = data.get("asset", active_asset)
-                if weights:
-                    pred = binance_predict_price(weights, features, asset)
-                    curr = get_current_price(asset)
-                    if pred > curr * 1.001:
-                        logger.info(f"[Listener] BUY {asset} (pred={pred:.2f} > curr={curr:.2f})")
-                    elif pred < curr * 0.999:
-                        logger.info(f"[Listener] SELL {asset} (pred={pred:.2f} < curr={curr:.2f})")
-            except Exception as e:
-                logger.warning(f"[Listener] {e}")
-            time.sleep(LISTENER_INTERVAL_SEC) 
+        self.correct_predictions = 0
+        self.incorrect_predictions = 0
+        self.accuracy = 0
+
+
+    def use_weights(self, weights):
+        trades = self.binance_ws.trades
+        last_price = self.binance_ws.last_price
+
+        now = time.time()
+        trades_snapshot = list(self.binance_ws.trades)
+        trades_10 = self.binance_ws.get_trades_since(now - 11.0)
+        trades_30 = self.binance_ws.get_trades_since(now - 31.0)
+        shortterm_trades = self.binance_ws.get_trades_since(now - 1)
+
+        order_book = self.binance_ws.order_book
+        asks = order_book.get("asks", [])
+        bids = order_book.get("bids", [])
+
+        best_ask = asks[0]   # (price, qty)
+        best_bid = bids[0]   # (price, qty)
+        last_price = self.binance_ws.last_price
+
+        indicators = {}
+        # --- 12 new features ---
+        indicators["spread"] = self.ce.spread_bps(best_ask[0], best_bid[0])
+        indicators["wmid_dev"] = self.ce.weighted_mid_deviation(best_ask, best_bid)
+        indicators["imbalance"] = self.ce.book_imbalance(asks, bids, levels=10)
+        indicators["slope_ratio"] = self.ce.book_slope_ratio(asks, bids, levels=5)
+        indicators["depth_r"] = self.ce.depth_ratio(asks, bids)
+        indicators["vol_delta"] = self.ce.volume_delta_ratio(trades_snapshot, now, 5.0)
+        indicators["intensity"] = self.ce.trade_intensity_zscore(len(shortterm_trades))
+        indicators["large_ratio"] = self.ce.large_trade_ratio(trades_snapshot, now, 5.0, threshold_qty=0.1)
+        indicators["volatility"] = self.ce.realized_volatility(trades_10, now, 10.0)
+        indicators["mom"] = self.ce.momentum(trades_10, now, 10.0)
+        indicators["vwma_dev"] = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
+        indicators["cum_vdelta"] = self.ce.cumulative_volume_delta(indicators["vol_delta"])
+            
+        
+        print('='*100)
+        pred = float(np.dot(weights[:-1], np.array(list(indicators.values()))) + weights[-1])
+        print(f"prediction: {pred}, actual price: {self.binance_ws.last_price}")
+        prediction = ""
+        if self.last_prediction - pred < 0:
+            prediction = "SELL"
+        else:
+            prediction = "BUY"
+
+        if self.last_last_price - self.binance_ws.last_price < 0:
+            actual = "SELL"
+        else:
+            actual = "BUY"
+        print(f"predicted signal: {prediction}, actual signal: {actual}")
+
+        if prediction == actual:
+            self.correct_predictions += 1
+        else:
+            self.incorrect_predictions += 1
+        self.accuracy = self.correct_predictions / (self.correct_predictions + self.incorrect_predictions)
+        
+        print(f"accuracy: {self.accuracy*100}%")
+        print('='*100)
+        self.last_last_price = self.binance_ws.last_price
+        self.last_prediction = pred
+
+
+SLEEP_TIME = 1
+def main_loop():
+    test_eng = TestingEngine()
+    while 1:
+        response = requests.get("http://13.60.162.169:5000/weights").json()
+        weights = response["weights"] 
+        
+        test_eng.use_weights(weights)
+
+        time.sleep(SLEEP_TIME)
+
+def run_main_loop():
+    t = threading.Thread(target=main_loop, daemon=True)
+    t.start()
     
-    def start(self):
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True) # The daemon thread will run in the background and will not prevent the program from exiting. 
-        self._thread.start()
-        logger.info("WeightListener started")
-
-    def stop(self):
-        self._running = False # Pretty simple
-
 # ============================================================================
 # MAIN
 # ============================================================================
 
 if __name__ == "__main__":
     logger.info("Initializing Voice Assistant...")
-    
+
+    run_main_loop() 
+
     assistant = VoiceAssistant()
     assistant.run()
