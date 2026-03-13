@@ -468,6 +468,11 @@ class TestingEngine:
         self.last_last_price = 0
         self.last_prediction = 0
 
+        self.correct_predictions = 0
+        self.incorrect_predictions = 0
+        self.accuracy = 0
+
+
     def use_weights(self, weights):
         trades = self.binance_ws.trades
         last_price = self.binance_ws.last_price
@@ -516,6 +521,14 @@ class TestingEngine:
         else:
             actual = "BUY"
         print(f"predicted signal: {prediction}, actual signal: {actual}")
+
+        if prediction == actual:
+            self.correct_predictions += 1
+        else:
+            self.incorrect_predictions += 1
+        self.accuracy = self.correct_predictions / (self.correct_predictions + self.incorrect_predictions)
+        
+        print(f"accuracy: {self.accuracy*100}%")
         print('='*100)
         self.last_last_price = self.binance_ws.last_price
         self.last_prediction = pred
