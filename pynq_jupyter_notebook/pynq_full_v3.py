@@ -524,7 +524,12 @@ if __name__ == "__main__":
     ip = 0
     eng = Engine(ip)
     threading.Thread(target=eng.get_data, daemon=True).start()
-    test_binance = TestingEngine()
+    
+    binance_testing = True
+    test_binance = None
+    if binance_testing:
+        test_binance = TestingEngine()
+
     try:
         while True:
             time.sleep(2)
@@ -537,8 +542,9 @@ if __name__ == "__main__":
                 eng.lr_engine.post_weights("BTC")  # ← upload to API
                 eng.ret_dict.clear()
 
-                weights = eng.lr_engine.get_weights()
-                test_binance.use_weights(weights)
+                if test_binance:
+                    weights = eng.lr_engine.get_weights()
+                    test_binance.use_weights(weights)
 
             else:
                 print(f"Warming up... {len(eng.ret_dict['cum_volume_delta'])}/15")
