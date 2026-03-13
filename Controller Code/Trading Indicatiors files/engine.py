@@ -1,8 +1,7 @@
 from binance_ws import BinanceWSClient
-from calc_engine import CalculationEngine 
+from calc_engine import CalculationEngineV2
 import time
-from collections import deque, defaultdict
-import numpy as np
+from collections import defaultdict
 import threading
 
 
@@ -10,81 +9,38 @@ class Engine:
     def __init__(self):
         self.binance_ws = BinanceWSClient()
         self.binance_ws.run_ws()
-        
-        self.ce = CalculationEngine()
-        self.netvoldelta = deque(maxlen = 10)
+        self.ce = CalculationEngineV2()
         self.ret_dict = defaultdict(list)
-        
+
     def get_data(self):
-        trades = self.binance_ws.trades
-        order_book = self.binance_ws.order_book
-        last_price = self.binance_ws.last_price
-        depth_count = self.binance_ws.depth_count
-        trade_count = self.binance_ws.trade_count
-        while(1):
+        while True:
             now = time.time()
-            
-            trades_10 = self.binance_ws.get_trades_since(now - 11.0)
-            trades_30 = self.binance_ws.get_trades_since(now - 31.0)
-            trades_60 = self.binance_ws.get_trades_since(now - 61.0) 
-
-            vwma_10 = self.ce.vwma_calculate(trades, now, 11.0)
-            vwma_5 = self.ce.vwma_calculate(trades, now, 6.0)
-
-            shortterm_trades = self.binance_ws.get_trades_since(now - 1)
-
-            total_sell = self.ce.sell_total(shortterm_trades, now, 1)
-            total_brought =  self.ce.bought_total(shortterm_trades,now,1)
-            self.netvoldelta.append(total_brought - total_sell)
-
-            #Large trade volume ratio Average trade siz Trade arrival rate
-            
-            stlt = [t for t in shortterm_trades if t.volume > 0.1]
-            stv = stlt = [t.volume for t in shortterm_trades]
-            trade_arrival_rate =  len(shortterm_trades)
-            average_Trade = sum(stv) / trade_arrival_rate if trade_arrival_rate > 0 else 1
-            print(f"av {average_Trade:.5f},\t arrival rate {trade_arrival_rate},\t large trade volume, {sum(stlt):.5f}")
-            #print(f"total sold: {total_sell}, total bought: {total_brought}, net delta:{sum(self.netvoldelta)}")
-            
-            
-            # with this can do by/sell volume ratio and net volume 
-
             order_book = self.binance_ws.order_book
-            asks = order_book.get("asks", "")
-            bids = order_book.get("bids", "")
-            if asks == []:
+            asks = order_book.get("asks", [])
+            bids = order_book.get("bids", [])
+            if not asks or not bids:
                 time.sleep(1)
                 continue
-            else: 
-                topasks = asks[0]
-                topbids = bids[0]
-            
-            time.sleep (1)
-            imballance = self.ce.imbalance_calc(topasks, topbids)
-            askstotal=  self.ce.price_depth(asks)
-            bidstotal = self.ce.price_depth(bids)
-            ask_dropoff = self.ce.dropoff(asks, 5)
-            bid_dropoff = self.ce.dropoff(bids, 5)
-
-            ask_spread = self.ce.dropoff(asks, 3)
-
-            #bid_depthroc = self.ce.bid_depth_roc(bids)
-
-            #print(f"b drop{bid_dropoff:.7}, a drop{ask_dropoff:.7}, b tot {bidstotal:.7}, a tot{askstotal:.7}")
-            #print(vwma_10)
-            self.ret_dict["imballance"].append(imballance)
-            self.ret_dict["asks_total"].append(askstotal)
-            self.ret_dict["bids_total"].append(bidstotal)
-            self.ret_dict["ask_dropoff"].append(ask_dropoff)
-            self.ret_dict["bid_dropoff"].append(bid_dropoff)
-            self.ret_dict["ask_spread"].append(ask_spread)
-            self.ret_dict["vwma_10"].append(vwma_10)
-            self.ret_dict["vwma_5"].append(vwma_5)
-            self.ret_dict["total_sell"].append(total_sell)
-            self.ret_dict["total_brought"].append(total_brought)
-            self.ret_dict["stlt"].append(sum(stlt))
-            self.ret_dict["stv"].append(sum(stv))
+            trades_snapshot = list(self.binance_ws.trades)
+            shortterm = self.binance_ws.get_trades_since(now - 1)
+            best_ask, best_bid = asks[0], bids[0]
+            last_price = self.binance_ws.last_price or (best_ask[0] + best_bid[0]) / 2
+            vdelta = self.ce.volume_delta_ratio(trades_snapshot, now, 1.0)
+            self.ret_dict["spread_bps"].append(self.ce.spread_bps(best_ask[0], best_bid[0]))
+            self.ret_dict["weighted_mid_dev"].append(self.ce.weighted_mid_deviation(best_ask, best_bid))
+            self.ret_dict["book_imbalance"].append(self.ce.book_imbalance(asks, bids))
+            self.ret_dict["book_slope_ratio"].append(self.ce.book_slope_ratio(asks, bids, levels=5))
+            self.ret_dict["depth_ratio"].append(self.ce.depth_ratio(asks, bids))
+            self.ret_dict["vol_delta_ratio"].append(vdelta)
+            self.ret_dict["trade_intensity_z"].append(self.ce.trade_intensity_zscore(len(shortterm)))
+            self.ret_dict["large_trade_ratio"].append(self.ce.large_trade_ratio(trades_snapshot, now, 1.0))
+            self.ret_dict["realized_vol"].append(self.ce.realized_volatility(trades_snapshot, now, 10.0))
+            self.ret_dict["momentum"].append(self.ce.momentum(trades_snapshot, now, 10.0))
+            self.ret_dict["vwma_deviation"].append(self.ce.vwma_deviation(trades_snapshot, now, 10.0, last_price))
+            self.ret_dict["cum_vol_delta"].append(self.ce.cumulative_volume_delta(vdelta))
+            self.ret_dict["last_price"].append(last_price)
             print(self.ret_dict)
+            time.sleep(1)
 
 
 if __name__ == '__main__':
