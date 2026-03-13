@@ -446,6 +446,34 @@ except ModuleNotFoundError:
 
 from binance_ws import BinanceWSClient # edit for local imports???
 
+
+
+SLEEP_TIME = 1
+def main_loop():
+    test_eng = TestingEngine()
+    while 1:
+        response = requests.get("http://13.60.162.169:5000/weights").json()
+        weights = response["weights"] 
+        
+        test_eng.use_weights(weights)
+
+        time.sleep(SLEEP_TIME)
+
+def run_main_loop():
+    t = threading.Thread(target=main_loop, daemon=True)
+    t.start()
+    
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    logger.info("Initializing Voice Assistant...")
+
+    run_main_loop() 
+
+    assistant = VoiceAssistant()
+
 class TestingEngine:
     def __init__(self):
         self.binance_ws = BinanceWSClient()
@@ -454,10 +482,13 @@ class TestingEngine:
         self.last_last_price = 0
         self.last_prediction = 0
 
-        self.correct_predictions = 0
-        self.incorrect_predictions = 0
-        self.accuracy = 0
+        self.p_price_correct_predictions = 0
+        self.p_price_incorrect_predictions = 0
+        self.p_price_accuracy = 0
 
+        self.a_price_correct_predictions = 0
+        self.a_price_incorrect_predictions = 0
+        self.a_price_accuracy = 0
 
     def use_weights(self, weights):
         trades = self.binance_ws.trades
@@ -496,53 +527,47 @@ class TestingEngine:
         print('='*100)
         pred = float(np.dot(weights[:-1], np.array(list(indicators.values()))) + weights[-1])
         print(f"prediction: {pred}, actual price: {self.binance_ws.last_price}")
+        print()
         prediction = ""
+
         if self.last_prediction - pred < 0:
-            prediction = "SELL"
+            p_price_prediction = "SELL"
         else:
-            prediction = "BUY"
+            p_price_prediction = "BUY"
+
+        if self.last_last_price - pred < 0:
+            a_price_prediction = "SELL"
+        else:
+            a_price_prediction = "BUY"
 
         if self.last_last_price - self.binance_ws.last_price < 0:
             actual = "SELL"
         else:
             actual = "BUY"
-        print(f"predicted signal: {prediction}, actual signal: {actual}")
 
-        if prediction == actual:
-            self.correct_predictions += 1
+
+        print(f"p-p signal: {p_price_prediction}, a-p signal: {a_price_prediction}, actual signal: {actual}")
+        if p_price_prediction == actual:
+            self.p_price_correct_predictions += 1
         else:
-            self.incorrect_predictions += 1
-        self.accuracy = self.correct_predictions / (self.correct_predictions + self.incorrect_predictions)
+            self.p_price_incorrect_predictions += 1
+
+        if a_price_prediction == actual:
+            self.a_price_correct_predictions += 1
+        else:
+            self.a_price_incorrect_predictions += 1
+
+        self.p_price_accuracy = self.p_price_correct_predictions / (self.p_price_correct_predictions + self.p_price_incorrect_predictions)
+        self.a_price_accuracy = self.a_price_correct_predictions / (self.a_price_correct_predictions + self.a_price_incorrect_predictions)
         
-        print(f"accuracy: {self.accuracy*100}%")
+        print()
+        print(f"p-p accuracy: {self.p_price_accuracy*100}%")
+        print()
+        print(f"a-p accuracy: {self.a_price_accuracy*100}%")
+        print()
+
         print('='*100)
         self.last_last_price = self.binance_ws.last_price
         self.last_prediction = pred
 
-
-SLEEP_TIME = 1
-def main_loop():
-    test_eng = TestingEngine()
-    while 1:
-        response = requests.get("http://13.60.162.169:5000/weights").json()
-        weights = response["weights"] 
-        
-        test_eng.use_weights(weights)
-
-        time.sleep(SLEEP_TIME)
-
-def run_main_loop():
-    t = threading.Thread(target=main_loop, daemon=True)
-    t.start()
-    
-# ============================================================================
-# MAIN
-# ============================================================================
-
-if __name__ == "__main__":
-    logger.info("Initializing Voice Assistant...")
-
-    run_main_loop() 
-
-    assistant = VoiceAssistant()
     assistant.run()
