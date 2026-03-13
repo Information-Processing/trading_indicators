@@ -387,7 +387,13 @@ class LinearRegressionEngine:
 
 POLLING_PERIOD = 0.2
 WARMUP_PERIOD = 5
-WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD 
+WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD
+
+# Prediction horizon (seconds and steps) for future-return target
+HORIZON_SECONDS = 10.0
+HORIZON_STEPS = int(HORIZON_SECONDS / POLLING_PERIOD)
+
+
 class Engine:
     def __init__(self, ip):
         self.enable_hardware = False 
@@ -397,7 +403,12 @@ class Engine:
         self.ce = CalculationEngineV2()
         self.ret_dict = defaultdict(list)
         self.lr_engine = LinearRegressionEngine(ip, self.enable_hardware)
+        # Optional legacy queue, no longer used for targets but kept for compatibility if needed
         self.last_price_queue = deque()
+        # Full price history to construct future-return labels
+        self.price_history = deque()
+        # Protect shared data between collector and trainer threads
+        self.data_lock = threading.Lock()
 
     def get_data(self):
         iterations = 0
@@ -437,23 +448,43 @@ class Engine:
             vwma_dev    = self.ce.vwma_deviation(trades_30, now, 30.0, last_price)
             cum_vdelta  = self.ce.cumulative_volume_delta(vol_delta)
 
-            self.ret_dict["spread_bps"].append(spread)
-            self.ret_dict["wmid_deviation"].append(wmid_dev)
-            self.ret_dict["book_imbalance"].append(imbalance)
-            self.ret_dict["book_slope_ratio"].append(slope_ratio)
-            self.ret_dict["depth_ratio"].append(depth_r)
-            self.ret_dict["vol_delta_ratio"].append(vol_delta)
-            self.ret_dict["trade_intensity_z"].append(intensity)
-            self.ret_dict["large_trade_ratio"].append(large_ratio)
-            self.ret_dict["realized_volatility"].append(volatility)
-            self.ret_dict["momentum_10s"].append(mom)
-            self.ret_dict["vwma_deviation_30s"].append(vwma_dev)
-            self.ret_dict["cum_volume_delta"].append(cum_vdelta)
-            
+            with self.data_lock:
+                self.ret_dict["spread_bps"].append(spread)
+                self.ret_dict["wmid_deviation"].append(wmid_dev)
+                self.ret_dict["book_imbalance"].append(imbalance)
+                self.ret_dict["book_slope_ratio"].append(slope_ratio)
+                self.ret_dict["depth_ratio"].append(depth_r)
+                self.ret_dict["vol_delta_ratio"].append(vol_delta)
+                self.ret_dict["trade_intensity_z"].append(intensity)
+                self.ret_dict["large_trade_ratio"].append(large_ratio)
+                self.ret_dict["realized_volatility"].append(volatility)
+                self.ret_dict["momentum_10s"].append(mom)
+                self.ret_dict["vwma_deviation_30s"].append(vwma_dev)
+                self.ret_dict["cum_volume_delta"].append(cum_vdelta)
 
-            if iterations > WARMUP_ITERATIONS:
-                self.last_price_queue.append(self.binance_ws.last_price)
-                self.ret_dict["last_price"].append(self.last_price_queue.popleft())
+                if iterations > WARMUP_ITERATIONS:
+                    # Maintain full price history for horizon-based labels
+                    self.price_history.append(last_price)
+
+                    # Prevent unbounded growth of history (keep a rolling buffer)
+                    max_history_len = HORIZON_STEPS + 2000
+                    if len(self.price_history) > max_history_len:
+                        self.price_history.popleft()
+
+                    # Once we have enough history, create a future log-return target
+                    if len(self.price_history) > HORIZON_STEPS:
+                        # price at feature time t (HORIZON_STEPS back from current)
+                        p_t = self.price_history[-1 - HORIZON_STEPS]
+                        # price at t + H (current price)
+                        p_tH = last_price
+
+                        if p_t > 0:
+                            y = float(np.log(p_tH / p_t))
+                        else:
+                            y = 0.0
+
+                        # Use "last_price" slot as the supervised target (future log-return)
+                        self.ret_dict["last_price"].append(y)
             iterations += 1
 
             time.sleep(POLLING_PERIOD)
@@ -522,8 +553,16 @@ class TestingEngine:
         ], dtype=np.float64)
 
     @staticmethod
-    def _signal_from_prediction(prediction_price, current_price):
-        return "BUY" if prediction_price > current_price else "SELL"
+    def _signal_from_prediction(predicted_return, threshold: float = 0.0):
+        """
+        Convert a predicted future log-return into a trading signal.
+        Positive return → BUY, negative → SELL. A non-zero threshold can
+        be used as a confidence filter if desired.
+        """
+        if predicted_return > threshold:
+            return "BUY"
+        else:
+            return "SELL"
 
     @staticmethod
     def _signal_from_momentum(current_price, previous_price):
@@ -556,6 +595,7 @@ class TestingEngine:
             return
 
         weights_arr = np.asarray(weights, dtype=np.float64)
+        # Model predicts future log-return over the chosen horizon
         pred = float(np.dot(weights_arr[:-1], features) + weights_arr[-1])
 
         # Evaluate previous step's prediction on the realised move to now
@@ -581,8 +621,8 @@ class TestingEngine:
             else:
                 self.fake_money *= (2.0 - price_ratio)
 
-        # Generate new signals for the next interval
-        model_signal = self._signal_from_prediction(pred, last_price)
+        # Generate new signals for the next interval, using predicted return
+        model_signal = self._signal_from_prediction(pred)
         baseline_signal = self._signal_from_momentum(last_price, self.prev_price)
 
         self.prev_price = last_price
@@ -627,21 +667,30 @@ if __name__ == "__main__":
 
     try:
         while True:
-            time.sleep(2)
-            if len(eng.ret_dict["cum_volume_delta"]) >= 15:
-                target_samples = len(eng.ret_dict["last_price"])
-                data_copy = {k : list(v[:target_samples]) for k, v in eng.ret_dict.items()}
+            # Align trading / evaluation step with prediction horizon
+            time.sleep(HORIZON_SECONDS)
+            data_copy = None
+            num_labels = 0
+            # Snapshot and clear atomically to keep features/labels aligned
+            with eng.data_lock:
+                num_labels = len(eng.ret_dict["last_price"])
+                if num_labels >= 15:
+                    target_samples = num_labels
+                    data_copy = {k: list(v[:target_samples]) for k, v in eng.ret_dict.items()}
+                    eng.ret_dict.clear()
+                    # Reset horizon state so next batch labels align to next batch features
+                    eng.price_history.clear()
 
+            if data_copy is not None:
                 eng.lr_engine.test_all_lr(data_copy)
                 eng.lr_engine.print_all_equations()
                 eng.lr_engine.post_weights("BTC")  # ← upload to API
-                eng.ret_dict.clear()
 
                 if test_binance:
                     weights = eng.lr_engine.get_weights()
                     test_binance.use_weights(weights)
 
             else:
-                print(f"Warming up... {len(eng.ret_dict['cum_volume_delta'])}/15")
+                print(f"Warming up labels... {num_labels}/15")
     except KeyboardInterrupt:
         print("Shutting down...")
