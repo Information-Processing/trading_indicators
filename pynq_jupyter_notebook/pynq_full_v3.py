@@ -476,6 +476,8 @@ class TestingEngine:
         self.a_price_incorrect_predictions = 0
         self.a_price_accuracy = 0
 
+        self.fake_money = 1000
+
     def use_weights(self, weights):
         trades = self.binance_ws.trades
         last_price = self.binance_ws.last_price
@@ -519,19 +521,19 @@ class TestingEngine:
         prediction = ""
 
         if self.last_prediction - pred < 0:
-            p_price_prediction = "SELL"
-        else:
             p_price_prediction = "BUY"
+        else:
+            p_price_prediction = "SELL"
 
         if self.last_last_price - pred < 0:
-            a_price_prediction = "SELL"
-        else:
             a_price_prediction = "BUY"
+        else:
+            a_price_prediction = "SELL"
 
         if self.last_last_price - self.binance_ws.last_price < 0:
-            actual = "SELL"
-        else:
             actual = "BUY"
+        else:
+            actual = "SELL"
 
 
         print(f"p-p signal: {p_price_prediction}, a-p signal: {a_price_prediction}, actual signal: {actual}")
@@ -547,13 +549,23 @@ class TestingEngine:
 
         self.p_price_accuracy = self.p_price_correct_predictions / (self.p_price_correct_predictions + self.p_price_incorrect_predictions)
         self.a_price_accuracy = self.a_price_correct_predictions / (self.a_price_correct_predictions + self.a_price_incorrect_predictions)
-        
+      
+
+        if self.last_last_price != 0:
+            last_price_ratio = self.binance_ws.last_price / self.last_last_price
+            if p_price_prediction == "BUY":
+                self.fake_money = self.fake_money * last_price_ratio
+            else:
+                self.fake_money = self.fake_money *(2 - last_price_ratio)
+
+
         print()
         print(f"p-p accuracy: {self.p_price_accuracy*100}%")
         print()
         print(f"a-p accuracy: {self.a_price_accuracy*100}%")
         print()
-
+        
+        print(f"BALANCE: {self.fake_money}")
         print('='*100)
         self.last_last_price = self.binance_ws.last_price
         self.last_prediction = pred
