@@ -20,6 +20,7 @@ import numpy as np
 import threading
 from collections import deque
 import requests
+import sys
 
 API_BASE_URL = "http://13.60.162.169:5000"
 
@@ -383,15 +384,76 @@ class LinearRegressionEngine:
             print(f"[API] POST /matrix FAILED — {e}")
 
     def get_weights(self):
-        return self._get_denormed(self.optimised_sw_lr.params)
+        if self.enable_hardware:
+            return self._get_denormed(self.hardware_lr.weights)
+        else:
+            return self._get_denormed(self.optimised_sw_lr.params)
 
 POLLING_PERIOD = 0.2
 WARMUP_PERIOD = 5
 WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD
 
+# Runtime defaults (can be overridden via CLI params)
+DEFAULT_HORIZON_STEPS = 15
+DEFAULT_REQUIRED_LABELS = 10
+
 # Prediction horizon (seconds and steps) for future-return target
-HORIZON_SECONDS = 10.0
-HORIZON_STEPS = int(HORIZON_SECONDS / POLLING_PERIOD)
+HORIZON_STEPS = DEFAULT_HORIZON_STEPS
+HORIZON_SECONDS = HORIZON_STEPS * POLLING_PERIOD
+
+
+def _parse_positive_int(value, name):
+    try:
+        parsed = int(value)
+        if parsed <= 0:
+            raise ValueError
+        return parsed
+    except ValueError:
+        print(f"[WARN] Ignoring invalid {name} value: {value!r} (must be a positive integer)")
+        return None
+
+
+def parse_runtime_parameters(args):
+    """
+    Parse runtime parameters from CLI.
+    Supported formats:
+      - key=value, e.g. samples=1000 horizon=1000
+      - --key value, e.g. --samples 1000 --horizon 1000
+    Supported keys:
+      - samples / x       -> minimum label count before training
+      - horizon / horison -> horizon in steps
+    """
+    required_labels = DEFAULT_REQUIRED_LABELS
+    horizon_steps = DEFAULT_HORIZON_STEPS
+    i = 0
+
+    while i < len(args):
+        token = args[i].strip()
+        key = None
+        value = None
+
+        if "=" in token:
+            key, value = token.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+        elif token.startswith("--") and i + 1 < len(args):
+            key = token[2:].strip().lower()
+            value = args[i + 1].strip()
+            i += 1
+
+        if key is not None and value is not None:
+            if key in ("samples", "x"):
+                parsed = _parse_positive_int(value, "samples")
+                if parsed is not None:
+                    required_labels = parsed
+            elif key in ("horizon", "horison"):
+                parsed = _parse_positive_int(value, "horizon")
+                if parsed is not None:
+                    horizon_steps = parsed
+
+        i += 1
+
+    return required_labels, horizon_steps
 
 
 class Engine:
@@ -656,6 +718,15 @@ class TestingEngine:
         print("=" * 100)
 
 if __name__ == "__main__":
+    required_labels, horizon_steps = parse_runtime_parameters(sys.argv[1:])
+    HORIZON_STEPS = horizon_steps
+    HORIZON_SECONDS = HORIZON_STEPS * POLLING_PERIOD
+
+    print(
+        f"Runtime config -> samples={required_labels}, "
+        f"horizon_steps={HORIZON_STEPS}, horizon_seconds={HORIZON_SECONDS:.2f}"
+    )
+
     ip = 0
     eng = Engine(ip)
     threading.Thread(target=eng.get_data, daemon=True).start()
@@ -674,7 +745,7 @@ if __name__ == "__main__":
             # Snapshot and clear atomically to keep features/labels aligned
             with eng.data_lock:
                 num_labels = len(eng.ret_dict["last_price"])
-                if num_labels >= 15:
+                if num_labels >= required_labels:
                     target_samples = num_labels
                     data_copy = {k: list(v[:target_samples]) for k, v in eng.ret_dict.items()}
                     eng.ret_dict.clear()
@@ -691,6 +762,6 @@ if __name__ == "__main__":
                     test_binance.use_weights(weights)
 
             else:
-                print(f"Warming up labels... {num_labels}/15")
+                print(f"Warming up labels... {num_labels}/{required_labels}")
     except KeyboardInterrupt:
         print("Shutting down...")
