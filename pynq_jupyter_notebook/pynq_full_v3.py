@@ -12,14 +12,14 @@ hardware — no integer quantisation in Python. Accumulators are acc_t
 """
 
 from binance_ws import BinanceWSClient
-from calc_engine import CalculationEngineV4
+from calc_engine_v2 import CalculationEngineV2
 from pynq import allocate
 import time
 from collections import defaultdict
 import numpy as np
 import threading
 from collections import deque
-
+import requests
 
 API_BASE_URL = "http://13.60.162.169:5000"
 
@@ -317,17 +317,20 @@ class LinearRegressionEngine:
     to original units when printed.
     """
 
-    def __init__(self, ip):
+    def __init__(self, ip, enable_hardware):
+        self.enable_hardware = enable_hardware
         feat_names = list(FEATURE_RANGES.keys())[:-1]
         self.column_headers = feat_names + ["BIAS"]
         self.normaliser = FloatNormaliser(len(FEATURE_RANGES))
 
         self.unoptimised_sw_lr = UnoptimisedSoftwareLR(self.column_headers)
         self.optimised_sw_lr = OptimisedSoftwareLR(self.column_headers)
-        self.hardware_lr = HardwareLR(ip, self.column_headers, max_samples=32768)
+        if self.enable_hardware:
+            self.hardware_lr = HardwareLR(ip, self.column_headers, max_samples=32768)
         
     def _get_denormed(self, weights_norm):
         return self.normaliser.denormalise_weights(weights_norm).flatten().tolist()
+
     def test_all_lr(self, ret_dict):
         samples_float = bundle_dict_to_numpy(ret_dict)
         samples_norm = self.normaliser.normalise(samples_float)
@@ -337,7 +340,8 @@ class LinearRegressionEngine:
         t2 = time.time()
         self.optimised_sw_lr.stream_chunk_optimised(samples_norm)
         t3 = time.time()
-        self.hardware_lr.stream_chunk(samples_norm)
+        if self.enable_hardware: 
+            self.hardware_lr.stream_chunk(samples_norm)
         t4 = time.time()
 
         print(
@@ -359,7 +363,8 @@ class LinearRegressionEngine:
         print("\n[UNOPTIMISED SW]")
         self._print_denormed(self.unoptimised_sw_lr.params)
         print("\n[HARDWARE FPGA]")
-        self._print_denormed(self.hardware_lr.weights)
+        if self.enable_hardware:
+            self._print_denormed(self.hardware_lr.weights)
         
     def post_weights(self, asset: str):
         """POST denormalised weights + feature names to the API server."""
@@ -381,11 +386,13 @@ WARMUP_PERIOD = 5
 WARMUP_ITERATIONS = WARMUP_PERIOD / POLLING_PERIOD 
 class Engine:
     def __init__(self, ip):
+        self.enable_hardware = False 
+
         self.binance_ws = BinanceWSClient()
         self.binance_ws.run_ws()
-        self.ce = CalculationEngineV4()
+        self.ce = CalculationEngineV2()
         self.ret_dict = defaultdict(list)
-        self.lr_engine = LinearRegressionEngine(ip)
+        self.lr_engine = LinearRegressionEngine(ip, self.enable_hardware)
         self.last_price_queue = deque()
 
     def get_data(self):
@@ -449,6 +456,7 @@ class Engine:
 
 
 if __name__ == "__main__":
+    ip = 0
     eng = Engine(ip)
     threading.Thread(target=eng.get_data, daemon=True).start()
 
