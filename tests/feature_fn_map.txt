@@ -1,0 +1,56 @@
+feature_fn_map = {
+    # ── Original 12 ──────────────────────────────────────────────
+    "spread_bps":               self.ce.spread_bps,
+    "wmid_deviation":           self.ce.weighted_mid_deviation,
+    "book_imbalance":           self.ce.book_imbalance,
+    "book_slope_ratio":         self.ce.book_slope_ratio,
+    "depth_ratio":              self.ce.depth_ratio,
+    "vol_delta_ratio":          self.ce.volume_delta_ratio,
+    "trade_intensity_z":        self.ce.trade_intensity_zscore,
+    "large_trade_ratio":        self.ce.large_trade_ratio,
+    "realized_volatility":      self.ce.realized_volatility,
+    "momentum_10s":             self.ce.momentum,
+    "vwma_deviation_30s":       self.ce.vwma_deviation,
+    "cum_volume_delta":         self.ce.cumulative_volume_delta,
+    # ── New 12 ───────────────────────────────────────────────────
+    "price_acceleration":       self.ce.price_acceleration,
+    "buy_sell_count_ratio":     self.ce.buy_sell_trade_count_ratio,
+    "trade_size_zscore":        self.ce.trade_size_zscore,
+    "price_range_bps":          self.ce.price_range_bps,
+    "tick_direction_ratio":     self.ce.tick_direction_ratio,
+    "vwap_deviation_short":     self.ce.vwap_deviation_short,
+    "ask_touch_pressure":       self.ce.ask_touch_pressure,
+    "bid_touch_pressure":       self.ce.bid_touch_pressure,
+    "roll_spread_estimate":     self.ce.roll_spread_estimate,
+    "mid_returns_zscore":       self.ce.mid_price_returns_zscore,
+    "trade_size_dispersion":    self.ce.trade_size_dispersion,
+    "inter_trade_interval_z":   self.ce.inter_trade_interval_zscore,
+}
+
+# ── New 12 — computation lines ────────────────────────────────────────────────
+accel       = self.ce.price_acceleration(trades_snapshot, now)
+bs_ratio    = self.ce.buy_sell_trade_count_ratio(trades_snapshot, now)
+sz_zscore   = self.ce.trade_size_zscore(trades_snapshot, now)
+price_range = self.ce.price_range_bps(trades_10, now, 10.0)
+tick_dir    = self.ce.tick_direction_ratio(trades_snapshot, now)
+vwap_dev    = self.ce.vwap_deviation_short(trades_snapshot, now, 5.0, last_price)
+ask_press   = self.ce.ask_touch_pressure(asks)
+bid_press   = self.ce.bid_touch_pressure(bids)
+roll_spr    = self.ce.roll_spread_estimate(trades_10, now, 10.0)
+mid_retz    = self.ce.mid_price_returns_zscore(asks, bids)
+sz_disp     = self.ce.trade_size_dispersion(trades_snapshot, now)
+iti_zscore  = self.ce.inter_trade_interval_zscore(trades_snapshot, now)
+
+# ── New 12 — ret_dict appends ─────────────────────────────────────────────────
+self.ret_dict["price_acceleration"].append(accel)
+self.ret_dict["buy_sell_count_ratio"].append(bs_ratio)
+self.ret_dict["trade_size_zscore"].append(sz_zscore)
+self.ret_dict["price_range_bps"].append(price_range)
+self.ret_dict["tick_direction_ratio"].append(tick_dir)
+self.ret_dict["vwap_deviation_short"].append(vwap_dev)
+self.ret_dict["ask_touch_pressure"].append(ask_press)
+self.ret_dict["bid_touch_pressure"].append(bid_press)
+self.ret_dict["roll_spread_estimate"].append(roll_spr)
+self.ret_dict["mid_returns_zscore"].append(mid_retz)
+self.ret_dict["trade_size_dispersion"].append(sz_disp)
+self.ret_dict["inter_trade_interval_z"].append(iti_zscore)
