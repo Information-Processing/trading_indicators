@@ -12,16 +12,10 @@ module audio_direct_v1_1 #
         parameter integer C_S_AXI_ADDR_WIDTH = 5
     )
     (
-        // Users to add ports here
-
 
         input wire [31:0] pcm_data_in,
-
         input wire mic_data_valid,
-        input wire mic_clk,
-        input wire sel_direct,
-        input wire audio_in,
-        
+        input wire mic_clk,        
         output wire pdm_clk,
         output wire audio_out,
         output wire audio_shutdown,
@@ -53,6 +47,7 @@ module audio_direct_v1_1 #
     );
 
     // Internal signals
+    //wire pwm_audio_i, pwm_audio_o;
 
     // Instantiation of Axi Bus Interface S_AXI
     audio_direct_v1_1_S00_AXI # (
