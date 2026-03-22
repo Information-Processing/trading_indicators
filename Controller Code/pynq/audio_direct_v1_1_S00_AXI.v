@@ -23,10 +23,9 @@ module audio_direct_v1_1_S00_AXI #
     // PWM
     output wire pwm_audio_o,
     output wire pwm_audio_t,
-    input wire pwm_audio_i,
     output wire pwm_sdaudio_o,
 
-    // Extra port
+    // Extra ports
     input wire mic_data_valid_i,
 
     // User ports ends
@@ -54,7 +53,6 @@ module audio_direct_v1_1_S00_AXI #
     output wire  S_AXI_RVALID,
     input wire  S_AXI_RREADY
 );
-
     
     // AXI4LITE signals
     reg [C_S_AXI_ADDR_WIDTH-1 : 0]     axi_awaddr;
@@ -71,7 +69,7 @@ module audio_direct_v1_1_S00_AXI #
     localparam integer ADDR_LSB = (C_S_AXI_DATA_WIDTH/32) + 1;
     localparam integer OPT_MEM_ADDR_BITS = 2;
 
-    // slave registers
+    // 6 slave registers
     reg [C_S_AXI_DATA_WIDTH-1:0]    PDM_RESET_REG;
     reg [C_S_AXI_DATA_WIDTH-1:0]    PDM_TRANSFER_CONTROL_REG;
     reg [C_S_AXI_DATA_WIDTH-1:0]    PDM_FIFO_CONTROL_REG;
@@ -83,6 +81,8 @@ module audio_direct_v1_1_S00_AXI #
     reg [C_S_AXI_DATA_WIDTH-1:0]     reg_data_out;
     integer     byte_index;
     reg     aw_en;
+
+    // I/O Connections assignments
 
     assign S_AXI_AWREADY    = axi_awready;
     assign S_AXI_WREADY    = axi_wready;
@@ -109,23 +109,37 @@ module audio_direct_v1_1_S00_AXI #
     wire RX_FIFO_EMPTY_O;
     wire RX_FIFO_FULL_O;
     
-    wire        RX_FIFO_WR_EN_I;
-    wire [31:0] RX_FIFO_D_I;
-   fifo_rx u_rx_fifo (
-    .clk    (S_AXI_ACLK),
-    .srst    (RX_FIFO_RST_I),
-    .wr_en  (RX_FIFO_WR_EN_I),
-    .din    (RX_FIFO_D_I),
-    .rd_en  (RX_FIFO_RD_EN_I),
-    .dout   (RX_FIFO_D_O),
-    .empty  (RX_FIFO_EMPTY_O),
-    .full   (RX_FIFO_FULL_O)
+    // Instantiate the combined RX/TX and FSM module
+    pdm_rxtx u_pdm_rxtx (
+        .CLK_I(S_AXI_ACLK),
+        .RST_I(PDM_RST_I),
+        
+        .START_TRANSACTION_I(START_TRANSACTION_I),
+        .STOP_TRANSACTION_I(STOP_TRANSACTION_I),
+        .RNW_I(RNW_I),
+        
+        // TX Path (16-bit PWM Playback)
+        .TX_FIFO_RST_I(TX_FIFO_RST_I),
+        .TX_FIFO_D_I(TX_FIFO_D_I),
+        .TX_FIFO_WR_EN_I(TX_FIFO_WR_EN_I),
+        .TX_FIFO_EMPTY_O(TX_FIFO_EMPTY_O),
+        .TX_FIFO_FULL_O(TX_FIFO_FULL_O),
+        
+        // RX Path (32-bit PCM Record)
+        .RX_FIFO_RST_I(RX_FIFO_RST_I),
+        .RX_FIFO_D_O(RX_FIFO_D_O),
+        .RX_FIFO_RD_EN_I(RX_FIFO_RD_EN_I),
+        .RX_FIFO_EMPTY_O(RX_FIFO_EMPTY_O),
+        .RX_FIFO_FULL_O(RX_FIFO_FULL_O),
+        .mic_data_valid_i(mic_data_valid_i),
+        .PDM_M_DATA_I(pdm_m_data_i), 
+        
+        // Audio Hardware Outputs
+        .PDM_M_CLK_O(pdm_m_clk_o),
+        .PDM_LRSEL_O(pdm_lrsel_o),
+        .PWM_AUDIO_O(pwm_audio_o),
+        .PWM_AUDIO_T(pwm_audio_t)
     );
-    
-    assign RX_FIFO_WR_EN_I = mic_data_valid_i;
-    assign RX_FIFO_D_I    = pdm_m_data_i; // now PCM
-    
-
 
     // User logic signal assignments
     assign PDM_RST_I = PDM_RESET_REG[0];
